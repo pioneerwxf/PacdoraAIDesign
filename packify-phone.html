@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Packify AI</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; }
+  </style>
+</head>
+<body>
+  <div data-packify-dom="design" data-packify-can-generation="true"></div>
+  <script src="https://www.packify.ai/packify-api/packify-v0.0.3.js"></script>
+  <script>
+    (async function() {
+      let tries = 0;
+      function waitAndInit() {
+        if (typeof packify !== 'undefined') {
+          initPackifyPhone();
+        } else if (tries++ < 30) {
+          setTimeout(waitAndInit, 500);
+        }
+      }
+      waitAndInit();
+    })();
+
+    async function initPackifyPhone() {
+      try {
+        await packify.init({
+          appId: 'DBoFUkjLlTIrcrXXYDghX',
+          packifyConfig: {
+            language: 'en',
+            themeColor: '#7C3AED'
+          }
+        });
+
+        // Open design immediately
+        packify.openDesign();
+
+        // Notify parent when project is created
+        packify.eventBus.on('onCreateEnd', (id) => {
+          window.parent.postMessage({ type: 'packify_project_created', projectId: id }, '*');
+        });
+
+        // Send generated images to parent
+        packify.eventBus.on('getDesignResults', (data) => {
+          if (data && data.list) {
+            window.parent.postMessage({ type: 'packify_images', projectId: data.projectId, images: data.list }, '*');
+          }
+        });
+
+        packify.eventBus.on('getPhotographyResults', (data) => {
+          if (data && data.list) {
+            window.parent.postMessage({ type: 'packify_images', projectId: data.projectId, images: data.list }, '*');
+          }
+        });
+
+      } catch (e) {
+        console.error('Packify phone init error:', e);
+      }
+    }
+
+    // Click any image in the chat to send it to canvas
+    document.addEventListener('click', (e) => {
+      const img = e.target.closest('img');
+      if (img && img.src && !img.src.startsWith('data:image/svg')) {
+        // Skip tiny icons (< 50px)
+        if (img.naturalWidth < 50 || img.naturalHeight < 50) return;
+        window.parent.postMessage({ type: 'packify_image_clicked', imageUrl: img.src }, '*');
+      }
+    });
+
+    // Listen for commands from parent
+    window.addEventListener('message', (e) => {
+      if (e.data.type === 'packify_new_project') {
+        if (typeof packify !== 'undefined') packify.openDesign();
+      }
+      if (e.data.type === 'packify_reopen' && e.data.projectId) {
+        if (typeof packify !== 'undefined') packify.onDesignReDesign(e.data.projectId);
+      }
+    });
+  </script>
+</body>
+</html>

@@ -412,6 +412,74 @@ Apply the user's requested changes while keeping everything else pixel-perfect i
   }
 });
 
+// ============ AI: Extract Text from Image (GPT-4o Vision) ============
+app.post('/api/extract-text', async (req, res) => {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey || apiKey === 'your-openai-api-key-here') {
+    return res.status(500).json({ error: 'OpenAI API key not configured.' });
+  }
+
+  const { imageBase64 } = req.body;
+  if (!imageBase64) return res.status(400).json({ error: 'imageBase64 is required' });
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        messages: [
+          {
+            role: 'system',
+            content: `You are a packaging text extractor. Analyze the image and extract ALL visible text. Return a JSON array where each item has:
+- "label": category name in English (e.g. "Brand Name", "Product Type", "Tagline", "Ingredients", "Nutrition Info", "Barcode Text", "Social Media", "Legal Text", "Instructions", etc.)
+- "text": the exact text content as shown on the image
+- "font": best guess of font style, one of "serif", "sans-serif", "monospace", "cursive"
+- "size": estimated relative font size as a number (larger text = higher number, range 8-48)
+- "align": text alignment, one of "left", "center", "right"
+
+Be thorough - extract EVERY piece of visible text including small print, numbers, URLs, social media handles. Return ONLY the JSON array, no markdown.`
+          },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Extract all visible text from this packaging design image.' },
+              { type: 'image_url', image_url: { url: `data:image/png;base64,${imageBase64}` } }
+            ]
+          }
+        ],
+        max_tokens: 3000
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      console.error('GPT-4o text extraction error:', err);
+      return res.status(response.status).json({ error: err.error?.message || 'Vision API error' });
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || '[]';
+
+    let texts;
+    try {
+      const cleaned = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      texts = JSON.parse(cleaned);
+    } catch (e) {
+      console.error('Failed to parse text JSON:', content);
+      return res.status(500).json({ error: 'Failed to parse AI response', raw: content });
+    }
+
+    res.json({ texts });
+  } catch (err) {
+    console.error('Extract text error:', err);
+    res.status(500).json({ error: err.message || 'Internal server error' });
+  }
+});
+
 // ============ AI: Extract Elements from Image (GPT-4o Vision) ============
 app.post('/api/extract-elements', async (req, res) => {
   const apiKey = process.env.OPENAI_API_KEY;

@@ -2310,48 +2310,83 @@ const DEFAULT_DEMO_TEXTS = [
 // Store per-card text state: cardId -> [{label, text, font, size, align}]
 const cardTextState = new Map();
 
-function extractTextFromCard(card, img) {
-  // Use stored state if available, otherwise use defaults
+async function extractTextFromCard(card, img) {
   const cardId = card.id || '';
-  const demoTexts = cardTextState.has(cardId)
-    ? cardTextState.get(cardId)
-    : DEFAULT_DEMO_TEXTS.map(t => ({ ...t }));
 
-  // Simulate AI delay
-  setTimeout(() => {
-    const body = document.getElementById('editTextPanelBody');
-    if (!body) return;
+  // If we already have stored state for this card, use it directly
+  if (cardTextState.has(cardId)) {
+    renderTextRows(cardTextState.get(cardId));
+    return;
+  }
 
-    // Store original values as data attributes for change detection
-    body.innerHTML = demoTexts.map((item, i) => `
-      <div class="edit-text-row" data-index="${i}"
-           data-orig-text="${item.text.replace(/"/g, '&quot;')}"
-           data-orig-font="${item.font}"
-           data-orig-size="${item.size}"
-           data-orig-align="${item.align}">
-        <div class="edit-text-row-label">${item.label}</div>
-        <textarea class="edit-text-input" rows="${item.text.includes('\n') ? 2 : 1}">${item.text}</textarea>
-        <div class="edit-text-controls">
-          <select class="edit-text-font" title="Font Family">
-            <option value="sans-serif" ${item.font === 'sans-serif' ? 'selected' : ''}>Sans-serif</option>
-            <option value="serif" ${item.font === 'serif' ? 'selected' : ''}>Serif</option>
-            <option value="monospace">Monospace</option>
-            <option value="cursive">Cursive</option>
-          </select>
-          <input type="number" class="edit-text-size" value="${item.size}" min="6" max="120" title="Font Size">
-          <button class="edit-text-align-btn ${item.align === 'left' ? 'active' : ''}" data-align="left" title="Left Align" onclick="setTextAlign(this, 'left')">
-            <svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 3h10M2 6h6M2 9h8M2 12h4" stroke="currentColor" stroke-width="1.3"/></svg>
-          </button>
-          <button class="edit-text-align-btn ${item.align === 'center' ? 'active' : ''}" data-align="center" title="Center Align" onclick="setTextAlign(this, 'center')">
-            <svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 3h10M4 6h6M3 9h8M5 12h4" stroke="currentColor" stroke-width="1.3"/></svg>
-          </button>
-          <button class="edit-text-align-btn ${item.align === 'right' ? 'active' : ''}" data-align="right" title="Right Align" onclick="setTextAlign(this, 'right')">
-            <svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 3h10M6 6h6M4 9h8M8 12h4" stroke="currentColor" stroke-width="1.3"/></svg>
-          </button>
-        </div>
+  // Try AI extraction via GPT-4o Vision
+  let imageBase64 = null;
+  try { imageBase64 = getCardImageAsBase64(card); } catch (e) {}
+
+  let texts = null;
+  if (imageBase64) {
+    try {
+      const res = await fetch('/api/extract-text', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64 })
+      });
+      const data = await res.json();
+      if (res.ok && data.texts && data.texts.length > 0) {
+        texts = data.texts;
+      } else {
+        console.warn('Text extraction API error, using fallback:', data.error);
+      }
+    } catch (err) {
+      console.warn('Text extraction failed, using fallback:', err);
+    }
+  }
+
+  // Fallback to demo texts only if AI extraction failed
+  if (!texts) {
+    texts = DEFAULT_DEMO_TEXTS.map(t => ({ ...t }));
+  }
+
+  // Check if panel still exists
+  if (!document.getElementById('editTextPanelBody')) return;
+
+  // Store and render
+  if (cardId) cardTextState.set(cardId, texts);
+  renderTextRows(texts);
+}
+
+function renderTextRows(texts) {
+  const body = document.getElementById('editTextPanelBody');
+  if (!body) return;
+
+  body.innerHTML = texts.map((item, i) => `
+    <div class="edit-text-row" data-index="${i}"
+         data-orig-text="${(item.text || '').replace(/"/g, '&quot;')}"
+         data-orig-font="${item.font || 'sans-serif'}"
+         data-orig-size="${item.size || 14}"
+         data-orig-align="${item.align || 'left'}">
+      <div class="edit-text-row-label">${item.label || 'Text ' + (i+1)}</div>
+      <textarea class="edit-text-input" rows="${(item.text || '').includes('\n') ? 2 : 1}">${item.text || ''}</textarea>
+      <div class="edit-text-controls">
+        <select class="edit-text-font" title="Font Family">
+          <option value="sans-serif" ${(item.font||'sans-serif') === 'sans-serif' ? 'selected' : ''}>Sans-serif</option>
+          <option value="serif" ${item.font === 'serif' ? 'selected' : ''}>Serif</option>
+          <option value="monospace" ${item.font === 'monospace' ? 'selected' : ''}>Monospace</option>
+          <option value="cursive" ${item.font === 'cursive' ? 'selected' : ''}>Cursive</option>
+        </select>
+        <input type="number" class="edit-text-size" value="${item.size || 14}" min="6" max="120" title="Font Size">
+        <button class="edit-text-align-btn ${(item.align||'left') === 'left' ? 'active' : ''}" data-align="left" title="Left Align" onclick="setTextAlign(this, 'left')">
+          <svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 3h10M2 6h6M2 9h8M2 12h4" stroke="currentColor" stroke-width="1.3"/></svg>
+        </button>
+        <button class="edit-text-align-btn ${item.align === 'center' ? 'active' : ''}" data-align="center" title="Center Align" onclick="setTextAlign(this, 'center')">
+          <svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 3h10M4 6h6M3 9h8M5 12h4" stroke="currentColor" stroke-width="1.3"/></svg>
+        </button>
+        <button class="edit-text-align-btn ${item.align === 'right' ? 'active' : ''}" data-align="right" title="Right Align" onclick="setTextAlign(this, 'right')">
+          <svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 3h10M6 6h6M4 9h8M8 12h4" stroke="currentColor" stroke-width="1.3"/></svg>
+        </button>
       </div>
-    `).join('');
-  }, 800);
+    </div>
+  `).join('');
 }
 
 function setTextAlign(btn, align) {
@@ -2880,6 +2915,51 @@ function clearChatRefImage() {
   const ref = document.getElementById('chatRefImage');
   if (ref) ref.style.display = 'none';
 }
+
+// ============ Upload Image to Canvas ============
+function uploadImageToCanvas() {
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = 'image/*';
+  fileInput.multiple = true;
+  fileInput.style.display = 'none';
+  fileInput.onchange = (e) => {
+    Array.from(e.target.files).forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        addToCanvas(ev.target.result);
+      };
+      reader.readAsDataURL(file);
+    });
+    fileInput.remove();
+  };
+  document.body.appendChild(fileInput);
+  fileInput.click();
+}
+
+// ============ Paste Image on Canvas ============
+document.addEventListener('paste', (e) => {
+  // Don't intercept paste in input/textarea fields
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.target.closest('.edit-text-panel') || e.target.closest('.inline-edit-dialog')) return;
+
+  const items = e.clipboardData?.items;
+  if (!items) return;
+
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      e.preventDefault();
+      const blob = item.getAsFile();
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        // Place at mouse position if available, otherwise use smart placement
+        addToCanvas(ev.target.result);
+      };
+      reader.readAsDataURL(blob);
+      return; // Only handle first image
+    }
+  }
+});
 
 // ============ Project Save / Load ============
 let currentProjectId = null;

@@ -95,7 +95,7 @@
                 <div class="card-toolbar-icon">
                   <i class="fi fi-rr-bulb" style="color:#7C3AED;font-size:12px;"></i>
                 </div>
-                <span class="card-toolbar-link">2D Dieline</span>
+                <span class="card-toolbar-link" onclick="event.stopPropagation(); generateDielineFromCreation(this.closest('.design-card'))">2D Dieline</span>
                 <span class="card-toolbar-sep">|</span>
                 <span class="card-toolbar-link">3D mockup</span>
                 <span class="card-toolbar-sep">|</span>
@@ -136,6 +136,16 @@
               <div class="resize-handle tm"></div><div class="resize-handle bm"></div>
               <div class="resize-handle ml"></div><div class="resize-handle mr"></div>
             </div>
+          </div>
+          <!-- Demo Project Hint -->
+          <div class="demo-project-hint" id="demoProjectHint" style="left: 60px; top: 520px;">
+            <div class="demo-hint-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                <path d="M12 2L14.09 8.26L20.18 8.64L15.54 12.74L17.09 18.82L12 15.4L6.91 18.82L8.46 12.74L3.82 8.64L9.91 8.26L12 2Z" stroke="#C4B5FD" stroke-width="1.5" fill="none"/>
+              </svg>
+            </div>
+            <div class="demo-hint-title">Demo Project</div>
+            <div class="demo-hint-desc">This is a demo project. Feel free to explore the seamless workflow from packaging design to dieline and 3D mockup. You can delete it anytime or create a new project to start fresh.</div>
           </div>
         </div>
       </div>

@@ -397,7 +397,7 @@ function addToCanvas(imageUrl) {
         <div class="card-toolbar-icon">
           <i class="fi fi-rr-bulb" style="color:#7C3AED;font-size:12px;"></i>
         </div>
-        <span class="card-toolbar-link" onclick="event.stopPropagation();">2D Dieline</span>
+        <span class="card-toolbar-link" onclick="event.stopPropagation(); generateDielineFromCreation(this.closest('.design-card'))">2D Dieline</span>
         <span class="card-toolbar-sep">|</span>
         <span class="card-toolbar-link" onclick="event.stopPropagation();">3D mockup</span>
         <span class="card-toolbar-sep">|</span>
@@ -427,44 +427,145 @@ function addToCanvas(imageUrl) {
 
 // Pin placement is now handled by the pin-mode click handler below
 
-function generateDieline(el) {
-  addSystemMessage('Matching your design to the best dieline template from Pacdora mockup library...');
-  setTimeout(() => {
-    const card = document.createElement('div');
-    card.className = 'design-card';
-    card.style.left = '60px';
-    card.style.top = '520px';
-    card.setAttribute('data-type', 'dieline');
+// ============ AI: Generate 2D Dieline from 2D Creation ============
 
-    card.innerHTML = `
-      <div class="card-body dieline-card" ondblclick="openDielineEditor()">
-        <div class="card-toolbar">
-          <div class="card-toolbar-icon">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M8 2v12M4 6l4-4 4 4" stroke="#7C3AED" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </div>
-          <span class="card-toolbar-link">Edit Text</span>
-          <span class="card-toolbar-sep">|</span>
-          <span class="card-toolbar-link">Edit Elements</span>
-          <span class="card-toolbar-sep">|</span>
-          <span class="card-toolbar-link">Mockup</span>
-          <span class="card-toolbar-sep">|</span>
-          <button class="card-download-btn">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path d="M7 2v8M4 7l3 3 3-3M3 11h8" stroke="#333" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </button>
-        </div>
-        <div class="card-label"># 2D Dieline</div>
-        <img src="https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&h=400&fit=crop" alt="2D Dieline" class="card-image">
-        <div class="resize-handle tl"></div><div class="resize-handle tr"></div><div class="resize-handle bl"></div><div class="resize-handle br"></div><div class="resize-handle tm"></div><div class="resize-handle bm"></div><div class="resize-handle ml"></div><div class="resize-handle mr"></div>
+function getCardImageAsBase64(card) {
+  const img = card.querySelector('.card-image');
+  if (!img) return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = img.naturalWidth || img.width;
+  canvas.height = img.naturalHeight || img.height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  return canvas.toDataURL('image/png').split(',')[1];
+}
+
+function getCardImageUrl(card) {
+  const img = card.querySelector('.card-image');
+  return img ? img.src : null;
+}
+
+function createLoadingDielineCard(spot, width, height) {
+  const card = document.createElement('div');
+  card.className = 'design-card';
+  card.id = 'card-dieline-generating';
+  card.style.left = spot.x + 'px';
+  card.style.top = spot.y + 'px';
+  card.setAttribute('data-type', 'dieline');
+
+  card.innerHTML = `
+    <div class="card-body dieline-card" style="width:${width}px;">
+      <div class="card-label"># 2D Dieline</div>
+      <div class="dieline-generating" style="height:${height}px;">
+        <span class="generating-label">Generating</span>
       </div>
-    `;
+    </div>
+  `;
 
-    canvasContent.appendChild(card);
-    addSystemMessage('Your 2D Dieline is ready! Double-click to open the editor and customize.');
-  }, 2000);
+  canvasContent.appendChild(card);
+  applyZoom();
+  return card;
+}
+
+function replaceDielineLoadingWithImage(loadingCard, imageUrl) {
+  const body = loadingCard.querySelector('.card-body');
+  body.innerHTML = `
+    <div class="card-toolbar">
+      <div class="card-toolbar-icon">
+        <i class="fi fi-rr-bulb" style="color:#7C3AED;font-size:12px;"></i>
+      </div>
+      <span class="card-toolbar-link" onclick="event.stopPropagation(); editText('dieline')">Edit Text</span>
+      <span class="card-toolbar-sep">|</span>
+      <span class="card-toolbar-link" onclick="event.stopPropagation(); editElements('dieline')">Edit Elements</span>
+      <span class="card-toolbar-sep">|</span>
+      <span class="card-toolbar-link" onclick="event.stopPropagation(); showMockup('dieline')">Mockup</span>
+      <span class="card-toolbar-sep">|</span>
+      <button class="card-download-btn" onclick="event.stopPropagation(); downloadCard('dieline')">
+        <i class="fi fi-rr-download" style="font-size:12px;color:#333;"></i>
+      </button>
+    </div>
+    <div class="card-label"># 2D Dieline</div>
+    <div class="card-mode-toggle" onclick="event.stopPropagation();">
+      <span class="mode-btn active" onclick="switchCardMode(this, '2d')">2D</span>
+      <span class="mode-sep">|</span>
+      <span class="mode-btn" onclick="switchCardMode(this, '3d')">3D</span>
+    </div>
+    <img src="${imageUrl}" alt="2D Dieline" class="card-image" crossorigin="anonymous">
+    <div class="resize-handle tl"></div><div class="resize-handle tr"></div>
+    <div class="resize-handle bl"></div><div class="resize-handle br"></div>
+    <div class="resize-handle tm"></div><div class="resize-handle bm"></div>
+    <div class="resize-handle ml"></div><div class="resize-handle mr"></div>
+  `;
+  loadingCard.id = 'card-dieline-' + Date.now();
+  applyZoom();
+}
+
+async function generateDielineFromCreation(sourceCard) {
+  if (!sourceCard) {
+    // Try to find the selected card or the first creation card
+    sourceCard = document.querySelector('.design-card.selected[data-type="creation"]')
+      || document.querySelector('.design-card[data-type="creation"]');
+  }
+  if (!sourceCard) {
+    alert('No 2D Creation card found to generate dieline from.');
+    return;
+  }
+
+  const CARD_W = 500;
+  const CARD_H = 500;
+  const spot = findEmptySpot(CARD_W, CARD_H);
+
+  // Create loading card with shimmer animation
+  const loadingCard = createLoadingDielineCard(spot, CARD_W, CARD_H);
+  panToReveal(spot.x + CARD_W / 2, spot.y + CARD_H / 2);
+
+  try {
+    // Get image from source card
+    let payload = {};
+    const imgUrl = getCardImageUrl(sourceCard);
+
+    // Try base64 first (works for same-origin images)
+    try {
+      const base64 = getCardImageAsBase64(sourceCard);
+      if (base64) {
+        payload = { imageBase64: base64 };
+      } else {
+        payload = { imageUrl: imgUrl };
+      }
+    } catch (e) {
+      // Cross-origin: fall back to URL
+      payload = { imageUrl: imgUrl };
+    }
+
+    const res = await fetch('/api/generate-dieline', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to generate dieline');
+    }
+
+    if (data.type === 'image' && data.imageUrl) {
+      replaceDielineLoadingWithImage(loadingCard, data.imageUrl);
+    } else {
+      // No image generated - show error state then remove
+      alert(data.error || 'AI could not generate an image. Please try again.');
+      loadingCard.remove();
+    }
+  } catch (err) {
+    console.error('Generate dieline error:', err);
+    alert('Error generating dieline: ' + err.message);
+    loadingCard.remove();
+  }
+}
+
+// Keep legacy function for backwards compatibility
+function generateDieline(el) {
+  generateDielineFromCreation(null);
 }
 
 function generate3DMockup(el) {

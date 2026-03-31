@@ -1,0 +1,16 @@
+{
+  "name": "pacdora-ai-design",
+  "version": "1.0.0",
+  "description": "AI Packaging Design Agent",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.0.0",
+    "cookie-parser": "^1.4.6",
+    "express": "^4.18.2",
+    "uuid": "^9.0.0"
+  }
+}

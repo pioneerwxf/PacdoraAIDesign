@@ -658,6 +658,14 @@ body {
   color: var(--primary);
 }
 
+.bottom-toolbar-divider {
+  width: 1px;
+  height: 28px;
+  background: var(--border);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
 .bottom-tool-btn.active {
   background: var(--primary-light);
   color: var(--primary);

@@ -229,12 +229,39 @@ document.addEventListener('click', () => {
 });
 
 function newProject() {
-  // TODO: implement project creation UI
+  // Clear canvas and start fresh
+  const cards = canvasContent.querySelectorAll('.design-card');
+  const hints = canvasContent.querySelectorAll('.demo-project-hint');
+  cards.forEach(c => c.remove());
+  hints.forEach(h => h.remove());
+
+  // Close all floating panels and progress disk
+  closeAllFloatingPanels();
+  removeProgressDisk();
+  clearChatRefImage();
+
+  // Reset pan/zoom
+  panX = 0;
+  panY = 0;
+  zoomScale = 1;
+  applyZoom();
+
+  // Generate project ID, update URL and name
+  const projectId = 'proj-' + Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 6);
+  window.history.pushState({ projectId }, '', '?id=' + projectId);
   document.querySelector('.project-name').textContent = 'New Project';
+  document.querySelector('.project-name').dataset.projectId = projectId;
+  currentProjectId = projectId;
+  console.log('New project created:', projectId);
+
+  // Reset text state cache
+  cardTextState.clear();
+  pinCache.clear();
 }
 
 function deleteProject() {
   if (confirm('Delete this project?')) {
+    newProject();
     document.querySelector('.project-name').textContent = 'Untitled';
   }
 }
@@ -2854,6 +2881,100 @@ function clearChatRefImage() {
   if (ref) ref.style.display = 'none';
 }
 
+// ============ Project Save / Load ============
+let currentProjectId = null;
+
+function getProjectIdFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('id') || null;
+}
+
+function saveProjectState() {
+  if (!currentProjectId) return;
+  const cards = canvasContent.querySelectorAll('.design-card');
+  const cardsData = [];
+  cards.forEach(card => {
+    const body = card.querySelector('.card-body');
+    if (!body) return;
+    cardsData.push({
+      type: card.dataset.type,
+      left: card.style.left,
+      top: card.style.top,
+      width: body.style.width,
+      height: body.style.height,
+      html: body.innerHTML,
+      bodyClass: body.className
+    });
+  });
+  const state = {
+    projectId: currentProjectId,
+    projectName: document.querySelector('.project-name').textContent,
+    panX, panY, zoomScale,
+    cards: cardsData,
+    savedAt: new Date().toISOString()
+  };
+  localStorage.setItem('project_' + currentProjectId, JSON.stringify(state));
+}
+
+function loadProjectState(projectId) {
+  const raw = localStorage.getItem('project_' + projectId);
+  if (!raw) return false;
+  try {
+    const state = JSON.parse(raw);
+
+    // Clear current canvas
+    canvasContent.querySelectorAll('.design-card').forEach(c => c.remove());
+    canvasContent.querySelectorAll('.demo-project-hint').forEach(h => h.remove());
+
+    // Restore cards
+    state.cards.forEach(cd => {
+      const card = document.createElement('div');
+      card.className = 'design-card';
+      card.dataset.type = cd.type;
+      card.style.left = cd.left;
+      card.style.top = cd.top;
+      const body = document.createElement('div');
+      body.className = cd.bodyClass;
+      body.innerHTML = cd.html;
+      if (cd.width) body.style.width = cd.width;
+      if (cd.height) body.style.height = cd.height;
+      card.appendChild(body);
+      canvasContent.appendChild(card);
+    });
+
+    // Restore view
+    panX = state.panX || 0;
+    panY = state.panY || 0;
+    zoomScale = state.zoomScale || 1;
+    document.querySelector('.project-name').textContent = state.projectName || 'Project';
+    currentProjectId = projectId;
+
+    applyZoom();
+    initDieline3DSidebars();
+    return true;
+  } catch (e) {
+    console.error('Failed to load project:', e);
+    return false;
+  }
+}
+
+// Auto-save every 10 seconds
+setInterval(() => saveProjectState(), 10000);
+
+// Save before unload
+window.addEventListener('beforeunload', () => saveProjectState());
+
 // ============ Init ============
-applyZoom();
-initDieline3DSidebars();
+// Check URL for project ID and load if exists
+const urlProjectId = getProjectIdFromUrl();
+if (urlProjectId) {
+  currentProjectId = urlProjectId;
+  if (!loadProjectState(urlProjectId)) {
+    // No saved state — show default demo
+    applyZoom();
+    initDieline3DSidebars();
+  }
+} else {
+  applyZoom();
+  initDieline3DSidebars();
+}

@@ -30,6 +30,21 @@
   --radius-xl: 16px;
 }
 
+/* Dark Mode */
+[data-theme="dark"] {
+  --bg: #1A1A1A;
+  --bg-white: #2A2A2A;
+  --bg-canvas: #111111;
+  --text-primary: #E5E5E5;
+  --text-secondary: #AAAAAA;
+  --text-muted: #777777;
+  --border: #404040;
+  --border-light: #333333;
+  --shadow: rgba(0, 0, 0, 0.3);
+  --shadow-md: rgba(0, 0, 0, 0.4);
+  --primary-light: #3B2667;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -60,6 +75,36 @@ body {
 }
 
 /* ============ Floating Chat Toggle Button ============ */
+/* Floating Theme Toggle */
+.floating-theme-toggle {
+  position: fixed;
+  top: 12px;
+  right: 60px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: var(--bg-white);
+  border-radius: 50%;
+  box-shadow: 0 2px 12px var(--shadow-md);
+  cursor: pointer;
+  transition: box-shadow 0.2s, transform 0.15s;
+  user-select: none;
+}
+
+.floating-theme-toggle:hover {
+  box-shadow: 0 4px 20px var(--shadow-md);
+  transform: scale(1.1);
+}
+
+.floating-theme-toggle i {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .floating-chat-toggle {
   position: fixed;
   top: 12px;
@@ -2777,15 +2822,18 @@ body {
   border: 1px dashed var(--primary) !important;
 }
 
-/* ============ Modify History Bar (below card, collapsible) ============ */
+/* ============ Modify History Bar (below card, counter-scaled like toolbar) ============ */
 .modify-history-bar {
   background: #F3F3F3;
   border: 1px solid var(--border);
   border-top: none;
   border-radius: 0 0 var(--radius) var(--radius);
   overflow: hidden;
-  position: relative;
+  position: absolute;
+  left: 0;
   z-index: 5;
+  transform-origin: left top;
+  will-change: transform;
 }
 
 .modify-history-toggle {

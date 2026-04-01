@@ -2,6 +2,37 @@
    Pacdora AI Design - Application Logic
    ============================================ */
 
+// ============ Theme Toggle ============
+function initTheme() {
+  const saved = localStorage.getItem('pacdora-theme') || 'light';
+  applyTheme(saved);
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'light';
+  const next = current === 'dark' ? 'light' : 'dark';
+  applyTheme(next);
+  localStorage.setItem('pacdora-theme', next);
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  const lightIcon = document.getElementById('themeIconLight');
+  const darkIcon = document.getElementById('themeIconDark');
+  if (lightIcon && darkIcon) {
+    if (theme === 'dark') {
+      lightIcon.style.display = 'none';
+      darkIcon.style.display = 'flex';
+    } else {
+      lightIcon.style.display = 'flex';
+      darkIcon.style.display = 'none';
+    }
+  }
+}
+
+// Initialize theme on load
+initTheme();
+
 // ============ State ============
 let zoomScale = 1;
 const ZOOM_STEP = 0.05;
@@ -73,6 +104,23 @@ function updateCounterScale() {
   // Counter-scale mode toggles
   document.querySelectorAll('.card-mode-toggle').forEach(el => {
     el.style.transform = `scale(${inv})`;
+  });
+
+  // Counter-scale modify-history-bar: match card body screen width, text stays readable size
+  // The bar has scale(inv) applied, so its CSS px = its screen px (the two scales cancel out).
+  // Card body screen width = bodyW * zoomScale, so set bar CSS width to the same value.
+  document.querySelectorAll('.modify-history-bar').forEach(bar => {
+    const card = bar.closest('.design-card');
+    if (!card) return;
+    const body = card.querySelector('.card-body');
+    if (!body) return;
+    const bodyH = parseFloat(body.style.height) || body.offsetHeight;
+    const bodyW = parseFloat(body.style.width) || body.offsetWidth;
+    const GAP = 2; // screen-px gap between card bottom edge and bar top
+    bar.style.top = (bodyH + GAP * inv) + 'px';
+    // Width: bodyW (canvas px) × zoomScale = screen px = CSS px after counter-scale
+    bar.style.width = (bodyW * zoomScale) + 'px';
+    bar.style.transform = `scale(${inv})`;
   });
 
   // Keep card borders at 1px screen size regardless of zoom
@@ -228,7 +276,7 @@ document.addEventListener('click', () => {
   projectSelector.classList.remove('open');
 });
 
-function newProject() {
+async function newProject() {
   // Clear canvas and start fresh
   const cards = canvasContent.querySelectorAll('.design-card');
   const hints = canvasContent.querySelectorAll('.demo-project-hint');
@@ -246,8 +294,21 @@ function newProject() {
   zoomScale = 1;
   applyZoom();
 
-  // Generate project ID, update URL and name
-  const projectId = 'proj-' + Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 6);
+  // Create project on server to get a persistent ID
+  let projectId;
+  try {
+    const res = await fetch('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'New Project' })
+    });
+    const project = await res.json();
+    projectId = project.id;
+  } catch (e) {
+    // Fallback to local ID if server unreachable
+    projectId = 'proj-' + Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 6);
+  }
+
   window.history.pushState({ projectId }, '', '?id=' + projectId);
   document.querySelector('.project-name').textContent = 'New Project';
   document.querySelector('.project-name').dataset.projectId = projectId;
@@ -450,6 +511,12 @@ function addToCanvas(imageUrl) {
       <div class="resize-handle tl"></div><div class="resize-handle tr"></div><div class="resize-handle bl"></div><div class="resize-handle br"></div><div class="resize-handle tm"></div><div class="resize-handle bm"></div><div class="resize-handle ml"></div><div class="resize-handle mr"></div>
     </div>
   `;
+
+  // Store base64 immediately for data URL images (avoids canvas re-encode on edit)
+  if (imageUrl && imageUrl.startsWith('data:image')) {
+    const b64 = imageUrl.split(',')[1];
+    if (b64) card.dataset.storedBase64 = b64;
+  }
 
   canvasContent.appendChild(card);
   applyZoom();
@@ -2079,8 +2146,12 @@ async function handlePinSend(card) {
   panToReveal(spot.x + origW / 2, spot.y + origH / 2);
 
   // Try to get image base64
-  let imageBase64 = null;
-  try { imageBase64 = getCardImageAsBase64(card); } catch (e) {}
+  // First check stored base64 (for AI-generated cards that can't be drawn via canvas due to CORS)
+  let imageBase64 = card.dataset.storedBase64 || null;
+  if (!imageBase64) {
+    try { imageBase64 = getCardImageAsBase64(card); } catch (e) {}
+  }
+  const imageUrlPin = !imageBase64 ? getCardImageUrl(card) : null;
 
   // Determine API size
   const aspect = origW / origH;
@@ -2090,12 +2161,12 @@ async function handlePinSend(card) {
 
   // Call AI API
   let generatedImageUrl = null;
-  if (imageBase64) {
+  if (imageBase64 || imageUrlPin) {
     try {
       const res = await fetch('/api/pin-edit-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageBase64, description, pins, size: apiSize })
+        body: JSON.stringify({ imageBase64: imageBase64 || undefined, imageUrl: imageBase64 ? undefined : imageUrlPin, description, pins, size: apiSize })
       });
       const data = await res.json();
       if (res.ok && data.imageUrl) {
@@ -2114,6 +2185,10 @@ async function handlePinSend(card) {
   newBody.style.height = origH + 'px';
 
   if (generatedImageUrl) {
+    // Store base64 on card so subsequent edits don't fail with CORS
+    if (generatedImageUrl.startsWith('data:image')) {
+      loadingCard.dataset.storedBase64 = generatedImageUrl.split(',')[1] || '';
+    }
     newBody.innerHTML = `
       <div class="card-toolbar">
         <div class="card-toolbar-icon"><i class="fi fi-rr-bulb" style="color:#7C3AED;font-size:12px;"></i></div>
@@ -2250,11 +2325,14 @@ function openEditTextPanel(card) {
   // Make panel draggable by header
   initEditTextDrag(panel);
 
+  // Ensure card has an id for reference
+  if (!card.id) card.id = 'card-' + Date.now();
+
   // Store reference to the card
-  panel.dataset.cardId = card.id || '';
+  panel.dataset.cardId = card.id;
   panel._card = card;
 
-  // Extract text (simulate AI extraction with demo data for now)
+  // Extract text via AI
   extractTextFromCard(card, img);
 }
 
@@ -2320,16 +2398,20 @@ async function extractTextFromCard(card, img) {
   }
 
   // Try AI extraction via GPT-4o Vision
-  let imageBase64 = null;
-  try { imageBase64 = getCardImageAsBase64(card); } catch (e) {}
+  // First check stored base64 (for AI-generated cards that can't be drawn via canvas due to CORS)
+  let imageBase64 = card.dataset.storedBase64 || null;
+  if (!imageBase64) {
+    try { imageBase64 = getCardImageAsBase64(card); } catch (e) {}
+  }
+  const imageUrl = getCardImageUrl(card); // fallback URL for server-side fetch
 
   let texts = null;
-  if (imageBase64) {
+  if (imageBase64 || imageUrl) {
     try {
       const res = await fetch('/api/extract-text', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageBase64 })
+        body: JSON.stringify({ imageBase64: imageBase64 || undefined, imageUrl: imageBase64 ? undefined : imageUrl })
       });
       const data = await res.json();
       if (res.ok && data.texts && data.texts.length > 0) {
@@ -2444,9 +2526,8 @@ function saveEditText() {
     allTexts.push({ label, text, font, size, align });
   });
 
-  // Find the source card
-  const cardId = panel.dataset.cardId;
-  const sourceCard = cardId ? document.getElementById(cardId) : null;
+  // Find the source card — use stored reference (dataset.cardId may be empty for cards without id)
+  const sourceCard = panel._card || (panel.dataset.cardId ? document.getElementById(panel.dataset.cardId) : null);
 
   closeEditTextPanel();
 
@@ -2493,12 +2574,17 @@ async function generateEditTextImage(sourceCard, diffs, allTexts) {
   panToReveal(spot.x + origW / 2, spot.y + origH / 2);
 
   // Try to get image as base64 for the API call
-  let imageBase64 = null;
-  try {
-    imageBase64 = getCardImageAsBase64(sourceCard);
-  } catch (e) {
-    console.warn('Cannot get base64 from card image:', e);
+  // First check stored base64 (for AI-generated cards that can't be drawn via canvas due to CORS)
+  let imageBase64 = sourceCard.dataset.storedBase64 || null;
+  if (!imageBase64) {
+    try {
+      imageBase64 = getCardImageAsBase64(sourceCard);
+    } catch (e) {
+      console.warn('Cannot get base64 from card image (will use URL fallback):', e);
+    }
   }
+  // URL fallback: server will fetch the image when base64 is unavailable
+  const imageUrl = !imageBase64 ? getCardImageUrl(sourceCard) : null;
 
   // Build the diff HTML for the collapsible history bar
   const diffHtml = buildDiffHtml(diffs);
@@ -2511,12 +2597,12 @@ async function generateEditTextImage(sourceCard, diffs, allTexts) {
 
   // Call OpenAI API to regenerate the image
   let generatedImageUrl = null;
-  if (imageBase64) {
+  if (imageBase64 || imageUrl) {
     try {
       const res = await fetch('/api/edit-text-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageBase64, diffs, size: apiSize })
+        body: JSON.stringify({ imageBase64: imageBase64 || undefined, imageUrl: imageBase64 ? undefined : imageUrl, diffs, size: apiSize })
       });
       const data = await res.json();
       if (res.ok && data.imageUrl) {
@@ -2538,6 +2624,10 @@ async function generateEditTextImage(sourceCard, diffs, allTexts) {
 
   if (generatedImageUrl) {
     // API succeeded — show the AI-generated image
+    // Store base64 on card so subsequent edits don't fail with CORS
+    if (generatedImageUrl.startsWith('data:image')) {
+      loadingCard.dataset.storedBase64 = generatedImageUrl.split(',')[1] || '';
+    }
     cardBody.innerHTML = `
       <div class="card-toolbar">
         <div class="card-toolbar-icon">
@@ -2969,92 +3059,160 @@ function getProjectIdFromUrl() {
   return params.get('id') || null;
 }
 
-function saveProjectState() {
-  if (!currentProjectId) return;
+function collectProjectState() {
   const cards = canvasContent.querySelectorAll('.design-card');
   const cardsData = [];
   cards.forEach(card => {
     const body = card.querySelector('.card-body');
     if (!body) return;
     cardsData.push({
+      id: card.id || '',
       type: card.dataset.type,
       left: card.style.left,
       top: card.style.top,
       width: body.style.width,
       height: body.style.height,
       html: body.innerHTML,
-      bodyClass: body.className
+      bodyClass: body.className,
+      storedBase64: card.dataset.storedBase64 || ''
     });
   });
-  const state = {
+  return {
     projectId: currentProjectId,
     projectName: document.querySelector('.project-name').textContent,
     panX, panY, zoomScale,
     cards: cardsData,
     savedAt: new Date().toISOString()
   };
-  localStorage.setItem('project_' + currentProjectId, JSON.stringify(state));
 }
 
-function loadProjectState(projectId) {
-  const raw = localStorage.getItem('project_' + projectId);
-  if (!raw) return false;
+async function saveProjectState() {
+  if (!currentProjectId) return;
+  const state = collectProjectState();
+
+  // Save to server (primary — persists across sessions and devices)
   try {
-    const state = JSON.parse(raw);
-
-    // Clear current canvas
-    canvasContent.querySelectorAll('.design-card').forEach(c => c.remove());
-    canvasContent.querySelectorAll('.demo-project-hint').forEach(h => h.remove());
-
-    // Restore cards
-    state.cards.forEach(cd => {
-      const card = document.createElement('div');
-      card.className = 'design-card';
-      card.dataset.type = cd.type;
-      card.style.left = cd.left;
-      card.style.top = cd.top;
-      const body = document.createElement('div');
-      body.className = cd.bodyClass;
-      body.innerHTML = cd.html;
-      if (cd.width) body.style.width = cd.width;
-      if (cd.height) body.style.height = cd.height;
-      card.appendChild(body);
-      canvasContent.appendChild(card);
+    const res = await fetch(`/api/projects/${currentProjectId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: state.projectName, cards_data: state })
     });
-
-    // Restore view
-    panX = state.panX || 0;
-    panY = state.panY || 0;
-    zoomScale = state.zoomScale || 1;
-    document.querySelector('.project-name').textContent = state.projectName || 'Project';
-    currentProjectId = projectId;
-
-    applyZoom();
-    initDieline3DSidebars();
-    return true;
+    if (res.ok) {
+      // Also keep a lightweight localStorage copy as quick-load cache
+      try { localStorage.setItem('project_' + currentProjectId, JSON.stringify(state)); } catch(e) {}
+      return;
+    }
   } catch (e) {
-    console.error('Failed to load project:', e);
-    return false;
+    console.warn('Server save failed, falling back to localStorage:', e.message);
   }
+
+  // Fallback: localStorage only
+  try {
+    localStorage.setItem('project_' + currentProjectId, JSON.stringify(state));
+  } catch (e) {
+    console.warn('localStorage quota exceeded — project may not be saved:', e.message);
+  }
+}
+
+function applyProjectState(state, projectId) {
+  canvasContent.querySelectorAll('.design-card').forEach(c => c.remove());
+  canvasContent.querySelectorAll('.demo-project-hint').forEach(h => h.remove());
+
+  (state.cards || []).forEach(cd => {
+    const card = document.createElement('div');
+    card.className = 'design-card';
+    if (cd.id) card.id = cd.id;
+    card.dataset.type = cd.type || '';
+    card.style.left = cd.left || '0px';
+    card.style.top = cd.top || '0px';
+    if (cd.storedBase64) card.dataset.storedBase64 = cd.storedBase64;
+    const body = document.createElement('div');
+    body.className = cd.bodyClass || 'card-body';
+    body.innerHTML = cd.html || '';
+    if (cd.width) body.style.width = cd.width;
+    if (cd.height) body.style.height = cd.height;
+    card.appendChild(body);
+    canvasContent.appendChild(card);
+  });
+
+  panX = state.panX || 0;
+  panY = state.panY || 0;
+  zoomScale = state.zoomScale || 1;
+  document.querySelector('.project-name').textContent = state.projectName || 'Project';
+  currentProjectId = projectId;
+
+  applyZoom();
+  initDieline3DSidebars();
+}
+
+async function loadProjectState(projectId) {
+  // Try server first
+  try {
+    const res = await fetch(`/api/projects/${projectId}`);
+    if (res.ok) {
+      const project = await res.json();
+      if (project.cards_data) {
+        let state;
+        try {
+          state = typeof project.cards_data === 'string'
+            ? JSON.parse(project.cards_data)
+            : project.cards_data;
+        } catch (e) { /* invalid JSON */ }
+        if (state && Array.isArray(state.cards) && state.cards.length > 0) {
+          applyProjectState(state, projectId);
+          return true;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Server load failed, trying localStorage:', e.message);
+  }
+
+  // Fallback: localStorage
+  try {
+    const raw = localStorage.getItem('project_' + projectId);
+    if (raw) {
+      const state = JSON.parse(raw);
+      if (state && Array.isArray(state.cards) && state.cards.length > 0) {
+        applyProjectState(state, projectId);
+        return true;
+      }
+    }
+  } catch (e) {
+    console.error('localStorage load failed:', e);
+  }
+
+  return false;
 }
 
 // Auto-save every 10 seconds
 setInterval(() => saveProjectState(), 10000);
 
-// Save before unload
-window.addEventListener('beforeunload', () => saveProjectState());
+// Save before unload — sync to localStorage as instant backup, then async to server
+window.addEventListener('beforeunload', () => {
+  if (!currentProjectId) return;
+  const state = collectProjectState();
+  try { localStorage.setItem('project_' + currentProjectId, JSON.stringify(state)); } catch(e) {}
+  // Beacon to server (fire-and-forget, browser may complete even after page closes)
+  try {
+    navigator.sendBeacon(`/api/projects/${currentProjectId}/beacon`,
+      new Blob([JSON.stringify({ name: state.projectName, cards_data: state })],
+        { type: 'application/json' }));
+  } catch(e) {}
+});
 
 // ============ Init ============
-// Check URL for project ID and load if exists
-const urlProjectId = getProjectIdFromUrl();
-if (urlProjectId) {
-  currentProjectId = urlProjectId;
-  if (!loadProjectState(urlProjectId)) {
-    // No saved state — show default demo
+(async function initProject() {
+  const urlProjectId = getProjectIdFromUrl();
+  if (urlProjectId) {
+    currentProjectId = urlProjectId;
+    const loaded = await loadProjectState(urlProjectId);
+    if (!loaded) {
+      applyZoom();
+      initDieline3DSidebars();
+    }
+  } else {
     applyZoom();
     initDieline3DSidebars();
   }
-} else {
-  applyZoom();
-  initDieline3DSidebars();
-}
+})();

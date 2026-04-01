@@ -32,22 +32,28 @@
     </div>
   </div>
 
-  <!-- Floating Theme Toggle -->
-  <div class="floating-theme-toggle" id="themeToggle" onclick="toggleTheme()">
-    <i class="fi fi-rr-sun" id="themeIconLight" style="font-size:16px;color:#F59E0B;"></i>
-    <i class="fi fi-rr-moon" id="themeIconDark" style="font-size:16px;color:#7C3AED;display:none;"></i>
+  <!-- Floating User Bar - always visible, left of chat panel -->
+  <div class="canvas-user-bar" id="canvasUserBar">
+    <div class="user-bar-credits">
+      <i class="fi fi-sr-bolt" style="font-size:13px;color:#F59E0B;"></i>
+      <span style="font-size:12px;font-weight:600;color:var(--text-primary);">1</span>
+    </div>
+    <div class="user-bar-divider"></div>
+    <div class="user-bar-avatar">
+      <div style="width:22px;height:22px;border-radius:50%;background:#4CAF50;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;">X</div>
+    </div>
+    <div class="user-bar-divider"></div>
+    <button class="user-bar-theme-btn" onclick="toggleTheme()" title="切换深色/浅色模式" id="themeToggleBtn">
+      <i class="fi fi-rr-moon" id="themeIcon" style="font-size:14px;"></i>
+    </button>
+    <div class="user-bar-divider user-bar-chat-divider" id="userBarChatDivider" style="display:none;"></div>
+    <button class="user-bar-theme-btn user-bar-chat-btn" id="userBarChatBtn" onclick="toggleChatPanel()" title="打开聊天" style="display:none;">
+      <i class="fi fi-rr-comment-dots" style="font-size:14px;"></i>
+    </button>
   </div>
 
   <!-- Floating Chat Toggle (visible when chat is collapsed) -->
   <div class="floating-chat-toggle" id="floatingChatToggle" onclick="toggleChatPanel()">
-    <div class="floating-toggle-credits">
-      <i class="fi fi-sr-bolt" style="font-size:13px;color:#F59E0B;"></i>
-      <span>1</span>
-    </div>
-    <div class="floating-toggle-avatar">
-      <div style="width:22px;height:22px;border-radius:50%;background:#4CAF50;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;">X</div>
-    </div>
-    <div class="floating-toggle-divider"></div>
     <div class="floating-toggle-chat-icon">
       <i class="fi fi-rr-comment-dots" style="font-size:14px;color:#666;"></i>
       <span>Chat</span>
@@ -194,6 +200,15 @@
         <button class="bottom-tool-btn" title="Pin Mode" onclick="setToolMode('pin')">
           <i class="fi fi-rr-marker"></i>
           <span class="tool-label">Pin</span>
+        </button>
+        <button class="bottom-tool-btn" title="Frame Mode - drag to group cards" onclick="setToolMode('frame')">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style="display:block">
+            <line x1="5" y1="1" x2="4" y2="17" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+            <line x1="14" y1="1" x2="13" y2="17" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+            <line x1="1" y1="6.5" x2="17" y2="6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+            <line x1="1" y1="12.5" x2="17" y2="12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+          <span class="tool-label">Frame</span>
         </button>
         <div class="bottom-toolbar-divider"></div>
         <button class="bottom-tool-btn" title="Dieline Generator" onclick="setToolMode('dieline')">

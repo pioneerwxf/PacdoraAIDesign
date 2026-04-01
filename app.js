@@ -2,37 +2,6 @@
    Pacdora AI Design - Application Logic
    ============================================ */
 
-// ============ Theme Toggle ============
-function initTheme() {
-  const saved = localStorage.getItem('pacdora-theme') || 'light';
-  applyTheme(saved);
-}
-
-function toggleTheme() {
-  const current = document.documentElement.getAttribute('data-theme') || 'light';
-  const next = current === 'dark' ? 'light' : 'dark';
-  applyTheme(next);
-  localStorage.setItem('pacdora-theme', next);
-}
-
-function applyTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme);
-  const lightIcon = document.getElementById('themeIconLight');
-  const darkIcon = document.getElementById('themeIconDark');
-  if (lightIcon && darkIcon) {
-    if (theme === 'dark') {
-      lightIcon.style.display = 'none';
-      darkIcon.style.display = 'flex';
-    } else {
-      lightIcon.style.display = 'flex';
-      darkIcon.style.display = 'none';
-    }
-  }
-}
-
-// Initialize theme on load
-initTheme();
-
 // ============ State ============
 let zoomScale = 1;
 const ZOOM_STEP = 0.05;
@@ -123,6 +92,23 @@ function updateCounterScale() {
     bar.style.transform = `scale(${inv})`;
   });
 
+  // Counter-scale frame resize handles
+  document.querySelectorAll('.frame-resize-handle').forEach(el => {
+    const size = 8 * inv;
+    const offset = -Math.round(size / 2);
+    el.style.width = size + 'px';
+    el.style.height = size + 'px';
+    el.style.borderWidth = (1.5 * inv) + 'px';
+    if (el.classList.contains('tl') || el.classList.contains('tr')) el.style.top = offset + 'px';
+    if (el.classList.contains('bl') || el.classList.contains('br')) el.style.bottom = offset + 'px';
+    if (el.classList.contains('tl') || el.classList.contains('bl') || el.classList.contains('ml')) el.style.left = offset + 'px';
+    if (el.classList.contains('tr') || el.classList.contains('br') || el.classList.contains('mr')) el.style.right = offset + 'px';
+    if (el.classList.contains('tm') || el.classList.contains('bm')) { el.style.left = '50%'; el.style.transform = `translateX(-50%)`; }
+    if (el.classList.contains('ml') || el.classList.contains('mr')) { el.style.top = '50%'; el.style.transform = `translateY(-50%)`; }
+    if (el.classList.contains('tm')) el.style.top = offset + 'px';
+    if (el.classList.contains('bm')) el.style.bottom = offset + 'px';
+  });
+
   // Keep card borders at 1px screen size regardless of zoom
   document.querySelectorAll('.card-body').forEach(el => {
     el.style.borderWidth = (1 * inv) + 'px';
@@ -204,6 +190,22 @@ canvasViewport.addEventListener('wheel', (e) => {
 let panStartX = 0, panStartY = 0, panXStart = 0, panYStart = 0;
 
 canvasViewport.addEventListener('mousedown', (e) => {
+  // Frame mode: draw rubber-band selection on empty canvas
+  if (currentToolMode === 'frame' && !e.target.closest('.canvas-frame') && !e.target.closest('.design-card')) {
+    const contentRect = canvasContent.getBoundingClientRect();
+    frameSelectStart = {
+      x: (e.clientX - contentRect.left) / zoomScale,
+      y: (e.clientY - contentRect.top) / zoomScale
+    };
+    frameDrawing = true;
+    frameSelectEl = document.createElement('div');
+    frameSelectEl.className = 'frame-select-rect';
+    frameSelectEl.style.cssText = `left:${frameSelectStart.x}px;top:${frameSelectStart.y}px;width:0;height:0;`;
+    canvasContent.appendChild(frameSelectEl);
+    e.preventDefault();
+    return;
+  }
+
   // Pan with middle mouse button OR clicking on empty canvas background
   if (e.button === 1 || (e.target === canvasContent || e.target === canvasViewport)) {
     isPanning = true;
@@ -217,6 +219,21 @@ canvasViewport.addEventListener('mousedown', (e) => {
 });
 
 window.addEventListener('mousemove', (e) => {
+  // Frame: update rubber-band selection rect
+  if (frameDrawing && frameSelectStart && frameSelectEl) {
+    const contentRect = canvasContent.getBoundingClientRect();
+    const curX = (e.clientX - contentRect.left) / zoomScale;
+    const curY = (e.clientY - contentRect.top) / zoomScale;
+    const x = Math.min(curX, frameSelectStart.x);
+    const y = Math.min(curY, frameSelectStart.y);
+    const w = Math.abs(curX - frameSelectStart.x);
+    const h = Math.abs(curY - frameSelectStart.y);
+    frameSelectEl.style.left = x + 'px';
+    frameSelectEl.style.top = y + 'px';
+    frameSelectEl.style.width = w + 'px';
+    frameSelectEl.style.height = h + 'px';
+    return;
+  }
   if (isPanning) {
     panX = panXStart + (e.clientX - panStartX);
     panY = panYStart + (e.clientY - panStartY);
@@ -225,6 +242,22 @@ window.addEventListener('mousemove', (e) => {
 });
 
 window.addEventListener('mouseup', () => {
+  // Frame: finalize selection and create frame
+  if (frameDrawing && frameSelectEl) {
+    frameDrawing = false;
+    const selLeft = parseFloat(frameSelectEl.style.left);
+    const selTop = parseFloat(frameSelectEl.style.top);
+    const selW = parseFloat(frameSelectEl.style.width);
+    const selH = parseFloat(frameSelectEl.style.height);
+    frameSelectEl.remove();
+    frameSelectEl = null;
+    frameSelectStart = null;
+    if (selW > 10 && selH > 10) {
+      createCanvasFrame(selLeft, selTop, selLeft + selW, selTop + selH);
+    }
+    _activateCursorMode();
+    return;
+  }
   if (isPanning) {
     isPanning = false;
     canvasViewport.style.cursor = 'grab';
@@ -235,6 +268,8 @@ window.addEventListener('mouseup', () => {
 function selectCard(card) {
   const prevSelected = document.querySelector('.design-card.selected');
   document.querySelectorAll('.design-card.selected').forEach(c => c.classList.remove('selected'));
+  // 选中卡片时取消所有 Frame 的选中状态
+  document.querySelectorAll('.canvas-frame.selected-frame').forEach(f => f.classList.remove('selected-frame'));
   if (card) {
     card.classList.add('selected');
     canvasViewport.focus({ preventScroll: true });
@@ -249,6 +284,9 @@ function selectCard(card) {
 
 // Click on card-body to select, click elsewhere to deselect
 canvasViewport.addEventListener('click', (e) => {
+  // Clicking empty area inside a frame selects the frame — don't deselect cards
+  if (e.target.closest('.canvas-frame') && !e.target.closest('.design-card')) return;
+
   const cardBody = e.target.closest('.card-body');
   if (cardBody) {
     // If user clicked directly on the mockup iframe area, don't toggle selection
@@ -331,9 +369,15 @@ function deleteProject() {
 function toggleChatPanel() {
   const panel = document.getElementById('chatPanel');
   const toggle = document.getElementById('floatingChatToggle');
+  const chatBtn = document.getElementById('userBarChatBtn');
+  const chatDivider = document.getElementById('userBarChatDivider');
   panel.classList.toggle('collapsed');
   const isCollapsed = panel.classList.contains('collapsed');
   toggle.classList.toggle('visible', isCollapsed);
+  document.body.classList.toggle('chat-collapsed', isCollapsed);
+  // 收起时在用户栏显示聊天按钮，展开时隐藏
+  if (chatBtn) chatBtn.style.display = isCollapsed ? 'flex' : 'none';
+  if (chatDivider) chatDivider.style.display = isCollapsed ? 'block' : 'none';
 }
 
 // ============ Packify-integrated Chat ============
@@ -789,8 +833,14 @@ function canvasRedo() {
 }
 
 let currentToolMode = 'cursor';
+document.body.classList.add('cursor-mode'); // default mode on load
 
-function setToolMode(mode) {
+// ============ Frame Mode state ============
+let frameDrawing = false;
+let frameSelectStart = null; // canvas-space {x, y}
+let frameSelectEl = null;    // rubber-band DOM element
+
+function setToolMode(mode, triggerBtn) {
   // Dieline and Mockup open iframe modals instead of switching tool mode
   if (mode === 'dieline') {
     openIframeModal('https://www.pacdora.com/dielines', 'Pacdora Dielines');
@@ -807,16 +857,162 @@ function setToolMode(mode) {
 
   currentToolMode = mode;
   document.querySelectorAll('.bottom-tool-btn').forEach(btn => btn.classList.remove('active'));
-  event.currentTarget.classList.add('active');
+  const btn = triggerBtn || (typeof event !== 'undefined' && event?.currentTarget);
+  if (btn) btn.classList.add('active');
 
-  // Pin mode: use custom pin cursor on card images only
   if (mode === 'pin') {
     canvasViewport.classList.add('pin-cursor');
     canvasViewport.style.cursor = 'default';
+    document.body.classList.remove('cursor-mode');
+  } else if (mode === 'frame') {
+    canvasViewport.classList.remove('pin-cursor');
+    canvasViewport.style.cursor = 'crosshair';
+    document.body.classList.remove('cursor-mode');
   } else {
     canvasViewport.classList.remove('pin-cursor');
     canvasViewport.style.cursor = 'grab';
+    document.body.classList.add('cursor-mode');
   }
+}
+
+// ============ Theme Toggle ============
+function toggleTheme() {
+  const isDark = document.body.classList.toggle('dark-mode');
+  const icon = document.getElementById('themeIcon');
+  if (icon) {
+    icon.className = isDark ? 'fi fi-rr-sun' : 'fi fi-rr-moon';
+    icon.style.fontSize = '14px';
+  }
+  localStorage.setItem('pacdora-theme', isDark ? 'dark' : 'light');
+}
+
+// 初始化时恢复主题
+(function initTheme() {
+  const saved = localStorage.getItem('pacdora-theme');
+  if (saved === 'dark') {
+    document.body.classList.add('dark-mode');
+    const icon = document.getElementById('themeIcon');
+    if (icon) { icon.className = 'fi fi-rr-sun'; icon.style.fontSize = '14px'; }
+  }
+})();
+
+function _activateCursorMode() {
+  currentToolMode = 'cursor';
+  canvasViewport.classList.remove('pin-cursor');
+  canvasViewport.style.cursor = 'grab';
+  document.body.classList.add('cursor-mode');
+  document.querySelectorAll('.bottom-tool-btn').forEach(btn => btn.classList.remove('active'));
+  const cursorBtn = document.querySelector('.bottom-tool-btn[title="Cursor Mode"]');
+  if (cursorBtn) cursorBtn.classList.add('active');
+}
+
+function createCanvasFrame(selLeft, selTop, selRight, selBottom) {
+  const PAD = 16;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const members = [];
+
+  document.querySelectorAll('.design-card').forEach(card => {
+    const cx = parseFloat(card.style.left) || 0;
+    const cy = parseFloat(card.style.top) || 0;
+    const body = card.querySelector('.card-body');
+    if (!body) return;
+    const cw = body.offsetWidth;
+    const ch = body.offsetHeight;
+    // Include cards that overlap the selection rect
+    if (cx < selRight && cx + cw > selLeft && cy < selBottom && cy + ch > selTop) {
+      if (!card.id) card.id = 'card-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+      members.push(card);
+      minX = Math.min(minX, cx);
+      minY = Math.min(minY, cy);
+      maxX = Math.max(maxX, cx + cw);
+      maxY = Math.max(maxY, cy + ch);
+    }
+  });
+
+  if (members.length === 0) return;
+
+  // Use selection rect as frame bounds (with padding), but clip to card extents
+  const frameLeft = Math.min(selLeft, minX) - PAD;
+  const frameTop = Math.min(selTop, minY) - PAD;
+  const frameRight = Math.max(selRight, maxX) + PAD;
+  const frameBottom = Math.max(selBottom, maxY) + PAD;
+
+  const frameEl = document.createElement('div');
+  frameEl.className = 'canvas-frame';
+  frameEl.dataset.members = members.map(c => c.id).join(',');
+  frameEl.style.left = frameLeft + 'px';
+  frameEl.style.top = frameTop + 'px';
+  frameEl.style.width = (frameRight - frameLeft) + 'px';
+  frameEl.style.height = (frameBottom - frameTop) + 'px';
+  frameEl.innerHTML = `
+    <div class="canvas-frame-label"># Frame</div>
+    <div class="frame-resize-handle tl"></div><div class="frame-resize-handle tr"></div>
+    <div class="frame-resize-handle bl"></div><div class="frame-resize-handle br"></div>
+    <div class="frame-resize-handle tm"></div><div class="frame-resize-handle bm"></div>
+    <div class="frame-resize-handle ml"></div><div class="frame-resize-handle mr"></div>
+  `;
+  // Insert behind all cards
+  canvasContent.insertBefore(frameEl, canvasContent.firstChild);
+  initFrameDrag(frameEl);
+}
+
+function initFrameDrag(frameEl) {
+  let isDragging = false;
+  let startClientX, startClientY;
+  let startFrameLeft, startFrameTop;
+  let memberStarts = [];
+
+  frameEl.addEventListener('mousedown', (e) => {
+    if (e.target.closest('.design-card')) return;
+    if (e.target.closest('.frame-resize-handle')) return; // resize 由单独逻辑处理
+    isDragging = true;
+    startClientX = e.clientX;
+    startClientY = e.clientY;
+    startFrameLeft = parseFloat(frameEl.style.left) || 0;
+    startFrameTop = parseFloat(frameEl.style.top) || 0;
+    const ids = frameEl.dataset.members ? frameEl.dataset.members.split(',').filter(Boolean) : [];
+    memberStarts = ids.map(id => {
+      const card = document.getElementById(id);
+      return card ? { card, x: parseFloat(card.style.left) || 0, y: parseFloat(card.style.top) || 0 } : null;
+    }).filter(Boolean);
+    frameEl.classList.add('selected-frame');
+    e.preventDefault();
+    e.stopPropagation();
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    const dx = (e.clientX - startClientX) / zoomScale;
+    const dy = (e.clientY - startClientY) / zoomScale;
+    frameEl.style.left = (startFrameLeft + dx) + 'px';
+    frameEl.style.top = (startFrameTop + dy) + 'px';
+    memberStarts.forEach(({ card, x, y }) => {
+      card.style.left = (x + dx) + 'px';
+      card.style.top = (y + dy) + 'px';
+    });
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (isDragging) {
+      isDragging = false;
+    }
+  });
+
+  // Click outside frame removes selection highlight
+  document.addEventListener('mousedown', (e) => {
+    if (!e.target.closest('.canvas-frame')) {
+      frameEl.classList.remove('selected-frame');
+    }
+  });
+
+  // Delete key removes the frame (but not its member cards)
+  document.addEventListener('keydown', (e) => {
+    if ((e.key === 'Delete' || e.key === 'Backspace') && frameEl.classList.contains('selected-frame')) {
+      const focused = document.activeElement;
+      if (focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA' || focused.isContentEditable)) return;
+      frameEl.remove();
+    }
+  });
 }
 
 function openIframeModal(url, title) {
@@ -1613,6 +1809,11 @@ window.addEventListener('mousemove', (e) => {
     dragCard.style.left = x + 'px';
     dragCard.style.top = y + 'px';
 
+    // Update Frame membership based on mouse position
+    const mouseCanvasX = (e.clientX - contentRect.left) / zoomScale;
+    const mouseCanvasY = (e.clientY - contentRect.top) / zoomScale;
+    updateFrameMembership(dragCard, x, y, mouseCanvasX, mouseCanvasY);
+
     // Draw guides
     guides.forEach(g => {
       const line = document.createElement('div');
@@ -1625,23 +1826,162 @@ window.addEventListener('mousemove', (e) => {
   if (resizeState) {
     handleResize(e);
   }
+  if (frameResizeState) {
+    handleFrameResize(e);
+  }
 });
 
 function clearAlignmentGuides() {
   canvasContent.querySelectorAll('.alignment-guide').forEach(g => g.remove());
 }
 
+// ============ Frame Membership during drag ============
+// 以鼠标位置为准：
+//   进入 Frame → 加入成员，超出边框部分 clip-path 隐藏
+//   离开 Frame → 移出成员，完整显示，Frame 边框不变
+//   松手后 → 清除 clip-path，Frame 自动扩展包围所有成员
+function updateFrameMembership(card, cardX, cardY, mouseX, mouseY) {
+  const body = card.querySelector('.card-body');
+  const cardW = body ? body.offsetWidth : 0;
+  const cardH = body ? body.offsetHeight : 0;
+
+  // 记录卡片当前所属的 Frame（最多一个）
+  let currentFrame = null;
+  document.querySelectorAll('.canvas-frame').forEach(f => {
+    const ids = f.dataset.members ? f.dataset.members.split(',').filter(Boolean) : [];
+    if (ids.includes(card.id)) currentFrame = f;
+  });
+
+  // 找到鼠标所在的 Frame（最多一个）
+  let targetFrame = null;
+  document.querySelectorAll('.canvas-frame').forEach(f => {
+    const fx = parseFloat(f.style.left) || 0;
+    const fy = parseFloat(f.style.top) || 0;
+    const fw = parseFloat(f.style.width) || 0;
+    const fh = parseFloat(f.style.height) || 0;
+    if (mouseX >= fx && mouseX <= fx + fw && mouseY >= fy && mouseY <= fy + fh) {
+      targetFrame = f;
+    }
+  });
+
+  // 若从一个 Frame 移到另一个 Frame，先离开旧的
+  if (currentFrame && currentFrame !== targetFrame) {
+    const ids = currentFrame.dataset.members.split(',').filter(Boolean);
+    currentFrame.dataset.members = ids.filter(id => id !== card.id).join(',');
+    currentFrame = null;
+    card.style.clipPath = '';
+  }
+
+  if (targetFrame) {
+    // 鼠标在 Frame 内：加入成员（若尚未加入），超出边框部分裁剪
+    const fx = parseFloat(targetFrame.style.left) || 0;
+    const fy = parseFloat(targetFrame.style.top) || 0;
+    const fw = parseFloat(targetFrame.style.width) || 0;
+    const fh = parseFloat(targetFrame.style.height) || 0;
+
+    const ids = targetFrame.dataset.members ? targetFrame.dataset.members.split(',').filter(Boolean) : [];
+    if (!ids.includes(card.id)) {
+      ids.push(card.id);
+      targetFrame.dataset.members = ids.join(',');
+    }
+
+    const clipTop    = Math.max(0, fy - cardY);
+    const clipBottom = Math.max(0, (cardY + cardH) - (fy + fh));
+    const clipLeft   = Math.max(0, fx - cardX);
+    const clipRight  = Math.max(0, (cardX + cardW) - (fx + fw));
+    card.style.clipPath = `inset(${clipTop}px ${clipRight}px ${clipBottom}px ${clipLeft}px)`;
+  } else {
+    // 鼠标不在任何 Frame 内：完整显示
+    card.style.clipPath = '';
+  }
+}
+
+// 松手后：清除裁剪，Frame 只扩展（不缩小）以包围所有成员
+function expandAllFramesAfterDrop() {
+  const PAD = 16;
+  document.querySelectorAll('.canvas-frame').forEach(frame => {
+    const ids = frame.dataset.members ? frame.dataset.members.split(',').filter(Boolean) : [];
+    if (ids.length === 0) return;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    ids.forEach(id => {
+      const c = document.getElementById(id);
+      if (!c) return;
+      const b = c.querySelector('.card-body');
+      const cx = parseFloat(c.style.left) || 0;
+      const cy = parseFloat(c.style.top) || 0;
+      const cw = b ? b.offsetWidth : 0;
+      const ch = b ? b.offsetHeight : 0;
+      minX = Math.min(minX, cx);
+      minY = Math.min(minY, cy);
+      maxX = Math.max(maxX, cx + cw);
+      maxY = Math.max(maxY, cy + ch);
+    });
+
+    // 当前 Frame 边界
+    const curLeft   = parseFloat(frame.style.left)   || 0;
+    const curTop    = parseFloat(frame.style.top)    || 0;
+    const curRight  = curLeft + (parseFloat(frame.style.width)  || 0);
+    const curBottom = curTop  + (parseFloat(frame.style.height) || 0);
+
+    // 只扩展，不缩小：取当前边界与成员包围盒的并集
+    const newLeft   = Math.min(curLeft,   minX - PAD);
+    const newTop    = Math.min(curTop,    minY - PAD);
+    const newRight  = Math.max(curRight,  maxX + PAD);
+    const newBottom = Math.max(curBottom, maxY + PAD);
+
+    frame.style.left   = newLeft + 'px';
+    frame.style.top    = newTop  + 'px';
+    frame.style.width  = (newRight  - newLeft) + 'px';
+    frame.style.height = (newBottom - newTop)  + 'px';
+  });
+}
+
 window.addEventListener('mouseup', () => {
   if (dragCard) {
     dragCard.style.zIndex = '';
+    dragCard.style.clipPath = ''; // 清除裁剪，完整显示
+    expandAllFramesAfterDrop();   // Frame 扩展包围所有成员
     dragCard = null;
     clearAlignmentGuides();
   }
   resizeState = null;
+  frameResizeState = null;
 });
 
 // ============ Resize cards ============
 let resizeState = null;
+let frameResizeState = null;
+
+canvasContent.addEventListener('mousedown', (e) => {
+  const handle = e.target.closest('.frame-resize-handle');
+  if (!handle) return;
+  const frame = handle.closest('.canvas-frame');
+  const classes = handle.className;
+  const dir = classes.includes('tl') ? 'tl' : classes.includes('tr') ? 'tr' :
+              classes.includes('bl') ? 'bl' : classes.includes('br') ? 'br' :
+              classes.includes('tm') ? 'tm' : classes.includes('bm') ? 'bm' :
+              classes.includes('ml') ? 'ml' : 'mr';
+  const ids = frame.dataset.members ? frame.dataset.members.split(',').filter(Boolean) : [];
+  const memberStarts = ids.map(id => {
+    const card = document.getElementById(id);
+    if (!card) return null;
+    const body = card.querySelector('.card-body');
+    return { card, x: parseFloat(card.style.left) || 0, y: parseFloat(card.style.top) || 0,
+             w: body ? body.offsetWidth : 0, h: body ? body.offsetHeight : 0 };
+  }).filter(Boolean);
+
+  frameResizeState = {
+    frame, dir, memberStarts,
+    startX: e.clientX, startY: e.clientY,
+    startW: parseFloat(frame.style.width),
+    startH: parseFloat(frame.style.height),
+    startLeft: parseFloat(frame.style.left),
+    startTop: parseFloat(frame.style.top)
+  };
+  e.preventDefault();
+  e.stopPropagation();
+});
 
 canvasContent.addEventListener('mousedown', (e) => {
   const handle = e.target.closest('.resize-handle');
@@ -1658,6 +1998,7 @@ canvasContent.addEventListener('mousedown', (e) => {
               classes.includes('tm') ? 'tm' : classes.includes('bm') ? 'bm' :
               classes.includes('ml') ? 'ml' : 'mr';
 
+  const isEdge = ['tm', 'bm', 'ml', 'mr'].includes(dir);
   resizeState = {
     card, cardBody, dir,
     startX: e.clientX, startY: e.clientY,
@@ -1665,9 +2006,83 @@ canvasContent.addEventListener('mousedown', (e) => {
     startLeft: parseFloat(card.style.left), startTop: parseFloat(card.style.top)
   };
 
+  // Edge handles = crop mode: lock the image at its current display size
+  if (isEdge) {
+    const img = cardBody.querySelector('.card-image');
+    if (img) {
+      if (!img.dataset.cropInit) {
+        img.dataset.cropInit = '1';
+        const lockedW = cardBody.offsetWidth;
+        const lockedH = cardBody.offsetHeight;
+        img.style.position = 'absolute';
+        img.style.left = '0px';
+        img.style.top = '0px';
+        img.style.width = lockedW + 'px';
+        img.style.height = lockedH + 'px';
+        cardBody.style.overflow = 'hidden';
+      }
+      resizeState.startImgLeft = parseFloat(img.style.left) || 0;
+      resizeState.startImgTop = parseFloat(img.style.top) || 0;
+      resizeState.imgLockedW = parseFloat(img.style.width);
+      resizeState.imgLockedH = parseFloat(img.style.height);
+    }
+  }
+
   e.preventDefault();
   e.stopPropagation();
 });
+
+function handleFrameResize(e) {
+  const s = frameResizeState;
+  const dx = (e.clientX - s.startX) / zoomScale;
+  const dy = (e.clientY - s.startY) / zoomScale;
+  const aspect = s.startW / s.startH;
+  const MIN = 60;
+  let newW = s.startW, newH = s.startH, newLeft = s.startLeft, newTop = s.startTop;
+
+  const isEdge = ['tm', 'bm', 'ml', 'mr'].includes(s.dir);
+
+  if (isEdge) {
+    // 边中点：仅调整 Frame 边框大小，不缩放成员卡片
+    if (s.dir === 'mr') { newW = Math.max(MIN, s.startW + dx); }
+    else if (s.dir === 'ml') { newW = Math.max(MIN, s.startW - dx); newLeft = s.startLeft + (s.startW - newW); }
+    else if (s.dir === 'bm') { newH = Math.max(MIN, s.startH + dy); }
+    else if (s.dir === 'tm') { newH = Math.max(MIN, s.startH - dy); newTop = s.startTop + (s.startH - newH); }
+
+    s.frame.style.left   = newLeft + 'px';
+    s.frame.style.top    = newTop  + 'px';
+    s.frame.style.width  = newW    + 'px';
+    s.frame.style.height = newH    + 'px';
+    // 成员卡片位置和大小不变
+  } else {
+    // 四角：等比缩放 Frame 及所有成员卡片
+    if (s.dir === 'br') { newW = Math.max(MIN, s.startW + dx); newH = newW / aspect; }
+    else if (s.dir === 'bl') { newW = Math.max(MIN, s.startW - dx); newH = newW / aspect; newLeft = s.startLeft + (s.startW - newW); }
+    else if (s.dir === 'tr') { newW = Math.max(MIN, s.startW + dx); newH = newW / aspect; newTop = s.startTop + (s.startH - newH); }
+    else if (s.dir === 'tl') { newW = Math.max(MIN, s.startW - dx); newH = newW / aspect; newLeft = s.startLeft + (s.startW - newW); newTop = s.startTop + (s.startH - newH); }
+
+    const scaleX = newW / s.startW;
+    const scaleY = newH / s.startH;
+
+    s.frame.style.left   = newLeft + 'px';
+    s.frame.style.top    = newTop  + 'px';
+    s.frame.style.width  = newW    + 'px';
+    s.frame.style.height = newH    + 'px';
+
+    (s.memberStarts || []).forEach(({ card, x, y, w, h }) => {
+      const relX = x - s.startLeft;
+      const relY = y - s.startTop;
+      card.style.left = (newLeft + relX * scaleX) + 'px';
+      card.style.top  = (newTop  + relY * scaleY) + 'px';
+      const body = card.querySelector('.card-body');
+      if (body) {
+        body.style.width  = (w * scaleX) + 'px';
+        body.style.height = (h * scaleY) + 'px';
+      }
+    });
+  }
+  applyZoom();
+}
 
 function handleResize(e) {
   const s = resizeState;
@@ -1696,21 +2111,57 @@ function handleResize(e) {
     newLeft = s.startLeft + (s.startW - newW);
     newTop = s.startTop + (s.startH - newH);
   }
-  // Edge handles: also proportional by default
+  // Edge handles: crop (change visible window, image stays fixed size)
   else if (s.dir === 'mr' || s.dir === 'ml') {
-    if (s.dir === 'mr') newW = Math.max(80, s.startW + dx);
-    else { newW = Math.max(80, s.startW - dx); newLeft = s.startLeft + (s.startW - newW); }
-    newH = newW / aspect;
+    const img = s.cardBody.querySelector('.card-image');
+    if (s.dir === 'mr') {
+      // Extend/shrink right edge — image left stays fixed
+      const maxW = s.imgLockedW != null ? s.imgLockedW - (s.startImgLeft || 0) : s.startW + dx;
+      newW = Math.max(80, Math.min(s.startW + dx, maxW));
+    } else {
+      // Move left edge — image shifts left to reveal more, or right to hide
+      const imgLeft = (s.startImgLeft || 0) - dx;
+      const clampedLeft = Math.min(0, Math.max(s.imgLockedW != null ? -(s.imgLockedW - 80) : imgLeft, imgLeft));
+      const actualShift = (s.startImgLeft || 0) - clampedLeft;
+      newW = Math.max(80, s.startW - actualShift);
+      newLeft = s.startLeft + actualShift;
+      if (img) img.style.left = clampedLeft + 'px';
+    }
+    newH = s.startH;
   } else if (s.dir === 'tm' || s.dir === 'bm') {
-    if (s.dir === 'bm') newH = Math.max(60, s.startH + dy);
-    else { newH = Math.max(60, s.startH - dy); newTop = s.startTop + (s.startH - newH); }
-    newW = newH * aspect;
+    const img = s.cardBody.querySelector('.card-image');
+    if (s.dir === 'bm') {
+      // Extend/shrink bottom edge — image top stays fixed
+      const maxH = s.imgLockedH != null ? s.imgLockedH - (s.startImgTop || 0) : s.startH + dy;
+      newH = Math.max(60, Math.min(s.startH + dy, maxH));
+    } else {
+      // Move top edge — image shifts up/down
+      const imgTop = (s.startImgTop || 0) - dy;
+      const clampedTop = Math.min(0, Math.max(s.imgLockedH != null ? -(s.imgLockedH - 60) : imgTop, imgTop));
+      const actualShift = (s.startImgTop || 0) - clampedTop;
+      newH = Math.max(60, s.startH - actualShift);
+      newTop = s.startTop + actualShift;
+      if (img) img.style.top = clampedTop + 'px';
+    }
+    newW = s.startW;
   }
 
   s.cardBody.style.width = newW + 'px';
   s.cardBody.style.height = newH + 'px';
   s.card.style.left = newLeft + 'px';
   s.card.style.top = newTop + 'px';
+
+  // Corner resize: if image was previously cropped, reset it to fill the new card size
+  const isCorner = ['tl', 'tr', 'bl', 'br'].includes(s.dir);
+  if (isCorner) {
+    const img = s.cardBody.querySelector('.card-image');
+    if (img && img.dataset.cropInit) {
+      img.style.width = newW + 'px';
+      img.style.height = newH + 'px';
+      img.style.left = '0px';
+      img.style.top = '0px';
+    }
+  }
 }
 
 // ============ Delete selected card ============
@@ -2192,9 +2643,11 @@ async function handlePinSend(card) {
     newBody.innerHTML = `
       <div class="card-toolbar">
         <div class="card-toolbar-icon"><i class="fi fi-rr-bulb" style="color:#7C3AED;font-size:12px;"></i></div>
-        <span class="card-toolbar-link" onclick="event.stopPropagation(); editText(this)">Edit Text</span>
+        <span class="card-toolbar-link" onclick="event.stopPropagation(); generateDielineFromCreation(this.closest('.design-card'))">2D Dieline</span>
         <span class="card-toolbar-sep">|</span>
-        <span class="card-toolbar-link" onclick="event.stopPropagation();">Edit Elements</span>
+        <span class="card-toolbar-link" onclick="event.stopPropagation();">3D Mockup</span>
+        <span class="card-toolbar-sep">|</span>
+        <span class="card-toolbar-link" onclick="event.stopPropagation(); editText(this)">Edit Text</span>
         <span class="card-toolbar-sep">|</span>
         <button class="card-download-btn" onclick="event.stopPropagation();"><i class="fi fi-rr-download" style="font-size:12px;color:#333;"></i></button>
       </div>
@@ -2633,9 +3086,11 @@ async function generateEditTextImage(sourceCard, diffs, allTexts) {
         <div class="card-toolbar-icon">
           <i class="fi fi-rr-bulb" style="color:#7C3AED;font-size:12px;"></i>
         </div>
-        <span class="card-toolbar-link" onclick="event.stopPropagation(); editText(this)">Edit Text</span>
+        <span class="card-toolbar-link" onclick="event.stopPropagation(); generateDielineFromCreation(this.closest('.design-card'))">2D Dieline</span>
         <span class="card-toolbar-sep">|</span>
-        <span class="card-toolbar-link" onclick="event.stopPropagation();">Edit Elements</span>
+        <span class="card-toolbar-link" onclick="event.stopPropagation();">3D Mockup</span>
+        <span class="card-toolbar-sep">|</span>
+        <span class="card-toolbar-link" onclick="event.stopPropagation(); editText(this)">Edit Text</span>
         <span class="card-toolbar-sep">|</span>
         <button class="card-download-btn" onclick="event.stopPropagation();">
           <i class="fi fi-rr-download" style="font-size:12px;color:#333;"></i>

@@ -30,19 +30,18 @@
   --radius-xl: 16px;
 }
 
-/* Dark Mode */
-[data-theme="dark"] {
-  --bg: #1A1A1A;
-  --bg-white: #2A2A2A;
-  --bg-canvas: #111111;
-  --text-primary: #E5E5E5;
-  --text-secondary: #AAAAAA;
-  --text-muted: #777777;
-  --border: #404040;
-  --border-light: #333333;
-  --shadow: rgba(0, 0, 0, 0.3);
-  --shadow-md: rgba(0, 0, 0, 0.4);
-  --primary-light: #3B2667;
+/* ============ Dark Mode ============ */
+body.dark-mode {
+  --bg: #1E1E2E;
+  --bg-white: #252535;
+  --bg-canvas: #13131F;
+  --text-primary: #E8E8F0;
+  --text-secondary: #9999BB;
+  --text-muted: #6666AA;
+  --border: #383850;
+  --border-light: #2E2E40;
+  --shadow: rgba(0, 0, 0, 0.35);
+  --shadow-md: rgba(0, 0, 0, 0.5);
 }
 
 * {
@@ -74,37 +73,62 @@ body {
   box-shadow: 0 2px 12px var(--shadow-md);
 }
 
-/* ============ Floating Chat Toggle Button ============ */
-/* Floating Theme Toggle */
-.floating-theme-toggle {
+/* ============ Floating User Bar (always visible, left of chat) ============ */
+.canvas-user-bar {
   position: fixed;
   top: 12px;
-  right: 60px;
-  z-index: 100;
+  right: calc(var(--chat-width) + 8px);
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
+  gap: 6px;
   background: var(--bg-white);
-  border-radius: 50%;
-  box-shadow: 0 2px 12px var(--shadow-md);
-  cursor: pointer;
-  transition: box-shadow 0.2s, transform 0.15s;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 5px 10px;
+  box-shadow: 0 2px 8px var(--shadow);
+  z-index: 120;
   user-select: none;
+  transition: right 0.25s ease;
 }
 
-.floating-theme-toggle:hover {
-  box-shadow: 0 4px 20px var(--shadow-md);
-  transform: scale(1.1);
+body.chat-collapsed .canvas-user-bar {
+  right: 8px;
 }
 
-.floating-theme-toggle i {
+.user-bar-credits {
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 3px;
 }
 
+.user-bar-avatar {
+  display: flex;
+  align-items: center;
+}
+
+.user-bar-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+}
+
+.user-bar-theme-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  transition: background 0.15s;
+}
+.user-bar-theme-btn:hover {
+  background: var(--primary-light);
+  color: var(--primary);
+}
+
+/* ============ Floating Chat Toggle Button ============ */
 .floating-chat-toggle {
   position: fixed;
   top: 12px;
@@ -304,8 +328,34 @@ body {
   display: none;
 }
 
+/* Show toolbar only when selected */
 .design-card.selected .card-toolbar {
   display: flex;
+}
+
+/* Hover: 1px 彩色边框（cursor 模式下才显示） */
+body.cursor-mode .design-card:hover .dieline-card {
+  border-color: var(--card-border-dieline);
+}
+body.cursor-mode .design-card:hover .creation-card {
+  border-color: var(--card-border-creation);
+}
+body.cursor-mode .design-card:hover .mockup-card {
+  border-color: var(--card-border-mockup);
+}
+
+/* Selected: 2px 边框 + 轻微发光 */
+.design-card.selected .dieline-card {
+  border-color: var(--card-border-dieline);
+  box-shadow: 0 0 0 1px var(--card-border-dieline), 0 4px 16px rgba(76,175,80,0.2);
+}
+.design-card.selected .creation-card {
+  border-color: var(--card-border-creation);
+  box-shadow: 0 0 0 1px var(--card-border-creation), 0 4px 16px rgba(0,188,212,0.2);
+}
+.design-card.selected .mockup-card {
+  border-color: var(--card-border-mockup);
+  box-shadow: 0 0 0 1px var(--card-border-mockup), 0 4px 16px rgba(206,147,216,0.2);
 }
 
 .card-toolbar {
@@ -403,12 +453,13 @@ body {
 
 .card-body {
   position: relative;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
   overflow: visible;
   cursor: move;
 }
 
 .dieline-card {
-  border: 1px solid var(--card-border-dieline);
+  border: 1px solid transparent;
   width: 500px;
 }
 
@@ -418,12 +469,12 @@ body {
 }
 
 .creation-card {
-  border: 1px solid var(--card-border-creation);
+  border: 1px solid transparent;
   width: 300px;
 }
 
 .mockup-card {
-  border: 1px solid var(--card-border-mockup);
+  border: 1px solid transparent;
   width: 400px;
   height: 500px;
 }
@@ -714,6 +765,67 @@ body {
 .bottom-tool-btn.active {
   background: var(--primary-light);
   color: var(--primary);
+}
+
+/* ============ Frame Mode ============ */
+.frame-select-rect {
+  position: absolute;
+  border: 1.5px dashed #4F46E5;
+  background: rgba(79, 70, 229, 0.06);
+  pointer-events: none;
+  z-index: 200;
+}
+
+.canvas-frame {
+  position: absolute;
+  border: 1.5px solid #4F46E5;
+  background: transparent;
+  cursor: move;
+  z-index: 0;
+  border-radius: 2px;
+}
+
+.canvas-frame.selected-frame {
+  border-color: #7C3AED;
+  box-shadow: 0 0 0 1px rgba(124,58,237,0.3);
+}
+
+.frame-resize-handle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: #fff;
+  border: 1.5px solid #4F46E5;
+  border-radius: 2px;
+  z-index: 10;
+  pointer-events: auto;
+  display: none;
+}
+
+.canvas-frame.selected-frame .frame-resize-handle {
+  display: block;
+}
+
+.frame-resize-handle.tl { top: -5px; left: -5px; cursor: nwse-resize; }
+.frame-resize-handle.tr { top: -5px; right: -5px; cursor: nesw-resize; }
+.frame-resize-handle.bl { bottom: -5px; left: -5px; cursor: nesw-resize; }
+.frame-resize-handle.br { bottom: -5px; right: -5px; cursor: nwse-resize; }
+.frame-resize-handle.tm { top: -5px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+.frame-resize-handle.bm { bottom: -5px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+.frame-resize-handle.ml { top: 50%; left: -5px; transform: translateY(-50%); cursor: ew-resize; }
+.frame-resize-handle.mr { top: 50%; right: -5px; transform: translateY(-50%); cursor: ew-resize; }
+
+.canvas-frame-label {
+  position: absolute;
+  top: -20px;
+  left: 0;
+  font-size: 11px;
+  color: #4F46E5;
+  font-weight: 500;
+  white-space: nowrap;
+  user-select: none;
+  pointer-events: none;
+  line-height: 1;
 }
 
 /* ============ Chat Panel ============ */

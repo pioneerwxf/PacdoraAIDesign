@@ -562,6 +562,7 @@ function addToCanvas(imageUrl) {
     if (b64) card.dataset.storedBase64 = b64;
   }
 
+  pushHistory(); // 记录添加卡片前的状态
   canvasContent.appendChild(card);
   applyZoom();
 
@@ -611,6 +612,7 @@ function createLoadingDielineCard(spot, width, height, opts) {
     </div>
   `;
 
+  pushHistory(); // 记录添加 loading card 前的状态
   canvasContent.appendChild(card);
   applyZoom();
   return card;
@@ -745,6 +747,7 @@ function generate3DMockup(el) {
       </div>
     `;
 
+    pushHistory(); // 记录添加 mockup 卡片前的状态
     canvasContent.appendChild(card);
     addSystemMessage('Your 3D Mockup is ready! Double-click to open the 3D viewer.');
   }, 2500);
@@ -792,6 +795,18 @@ document.querySelectorAll('.modal-overlay').forEach(overlay => {
   });
 });
 
+// Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y 撤销/重做
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+    e.preventDefault();
+    canvasUndo();
+  } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+    e.preventDefault();
+    canvasRedo();
+  }
+});
+
 // Close modals on Escape
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
@@ -824,13 +839,118 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+// ============ Undo / Redo ============
+const MAX_HISTORY = 50;
+let historyStack = [];  // array of snapshots
+let historyIndex = -1;  // current position in stack
+
+function captureSnapshot() {
+  const cards = [];
+  canvasContent.querySelectorAll('.design-card').forEach(card => {
+    const body = card.querySelector('.card-body');
+    cards.push({
+      id: card.id,
+      left: card.style.left || '0px',
+      top: card.style.top || '0px',
+      clipPath: card.style.clipPath || '',
+      bodyClass: body ? body.className : 'card-body',
+      bodyWidth: body ? (body.style.width || '') : '',
+      bodyHeight: body ? (body.style.height || '') : '',
+      bodyHTML: body ? body.innerHTML : '',
+    });
+  });
+
+  const frames = [];
+  canvasContent.querySelectorAll('.canvas-frame').forEach(frame => {
+    frames.push({
+      left: frame.style.left,
+      top: frame.style.top,
+      width: frame.style.width,
+      height: frame.style.height,
+      members: frame.dataset.members || '',
+    });
+  });
+
+  return { cards, frames };
+}
+
+function pushHistory() {
+  // Trim any redo states ahead of current index
+  historyStack = historyStack.slice(0, historyIndex + 1);
+  historyStack.push(captureSnapshot());
+  if (historyStack.length > MAX_HISTORY) historyStack.shift();
+  else historyIndex++;
+  updateUndoRedoBtns();
+}
+
+function restoreSnapshot(snapshot) {
+  // Remove current cards and frames
+  canvasContent.querySelectorAll('.design-card').forEach(c => c.remove());
+  canvasContent.querySelectorAll('.canvas-frame').forEach(f => f.remove());
+
+  // Restore frames first (z-index: 0, behind cards)
+  snapshot.frames.forEach(fd => {
+    const frame = document.createElement('div');
+    frame.className = 'canvas-frame';
+    frame.style.left = fd.left;
+    frame.style.top = fd.top;
+    frame.style.width = fd.width;
+    frame.style.height = fd.height;
+    frame.dataset.members = fd.members;
+    frame.innerHTML = `
+      <div class="frame-resize-handle tl"></div><div class="frame-resize-handle tr"></div>
+      <div class="frame-resize-handle bl"></div><div class="frame-resize-handle br"></div>
+      <div class="frame-resize-handle tm"></div><div class="frame-resize-handle bm"></div>
+      <div class="frame-resize-handle ml"></div><div class="frame-resize-handle mr"></div>
+    `;
+    canvasContent.insertBefore(frame, canvasContent.firstChild);
+    initFrameDrag(frame);
+  });
+
+  // Restore cards
+  snapshot.cards.forEach(cd => {
+    const card = document.createElement('div');
+    card.className = 'design-card';
+    card.id = cd.id;
+    card.style.left = cd.left;
+    card.style.top = cd.top;
+    if (cd.clipPath) card.style.clipPath = cd.clipPath;
+
+    const body = document.createElement('div');
+    body.className = cd.bodyClass || 'card-body';
+    body.innerHTML = cd.bodyHTML || '';
+    if (cd.bodyWidth) body.style.width = cd.bodyWidth;
+    if (cd.bodyHeight) body.style.height = cd.bodyHeight;
+    card.appendChild(body);
+    canvasContent.appendChild(card);
+  });
+
+  selectCard(null);
+  applyZoom();
+  updateUndoRedoBtns();
+}
+
 function canvasUndo() {
-  // Placeholder for undo
+  if (historyIndex <= 0) return;
+  historyIndex--;
+  restoreSnapshot(historyStack[historyIndex]);
 }
 
 function canvasRedo() {
-  // Placeholder for redo
+  if (historyIndex >= historyStack.length - 1) return;
+  historyIndex++;
+  restoreSnapshot(historyStack[historyIndex]);
 }
+
+function updateUndoRedoBtns() {
+  const undoBtn = document.querySelector('[onclick="canvasUndo()"]');
+  const redoBtn = document.querySelector('[onclick="canvasRedo()"]');
+  if (undoBtn) undoBtn.style.opacity = historyIndex > 0 ? '1' : '0.35';
+  if (redoBtn) redoBtn.style.opacity = historyIndex < historyStack.length - 1 ? '1' : '0.35';
+}
+
+// 初始快照（空画布状态）
+pushHistory();
 
 let currentToolMode = 'cursor';
 document.body.classList.add('cursor-mode'); // default mode on load
@@ -1010,6 +1130,7 @@ function initFrameDrag(frameEl) {
     if ((e.key === 'Delete' || e.key === 'Backspace') && frameEl.classList.contains('selected-frame')) {
       const focused = document.activeElement;
       if (focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA' || focused.isContentEditable)) return;
+      pushHistory(); // 记录 frame 删除前的状态
       frameEl.remove();
     }
   });
@@ -1733,6 +1854,7 @@ canvasContent.addEventListener('mousedown', (e) => {
   const cardBody = e.target.closest('.card-body');
   if (cardBody) {
     const card = cardBody.closest('.design-card');
+    pushHistory(); // 记录拖拽前状态
     dragCard = card;
     const rect = card.getBoundingClientRect();
     dragOffset.x = e.clientX - rect.left;
@@ -1956,6 +2078,7 @@ let frameResizeState = null;
 canvasContent.addEventListener('mousedown', (e) => {
   const handle = e.target.closest('.frame-resize-handle');
   if (!handle) return;
+  pushHistory(); // 记录 frame resize 前状态
   const frame = handle.closest('.canvas-frame');
   const classes = handle.className;
   const dir = classes.includes('tl') ? 'tl' : classes.includes('tr') ? 'tr' :
@@ -1986,6 +2109,7 @@ canvasContent.addEventListener('mousedown', (e) => {
 canvasContent.addEventListener('mousedown', (e) => {
   const handle = e.target.closest('.resize-handle');
   if (!handle) return;
+  pushHistory(); // 记录 card resize 前状态
 
   const cardBody = handle.closest('.card-body');
   const card = cardBody.closest('.design-card');
@@ -2168,6 +2292,7 @@ function handleResize(e) {
 function deleteSelectedCard() {
   const selected = document.querySelector('.design-card.selected');
   if (selected) {
+    pushHistory(); // 记录删除前的状态
     selected.remove();
     const dialog = document.querySelector('.inline-edit-dialog');
     if (dialog) dialog.remove();
@@ -2175,6 +2300,40 @@ function deleteSelectedCard() {
   }
   return false;
 }
+
+// ============ Double-click to focus card ============
+// 双击卡片：平移画布，使该卡片出现在视口正中央（卡片本身大小不变）
+canvasContent.addEventListener('dblclick', (e) => {
+  const cardBody = e.target.closest('.card-body');
+  if (!cardBody) return;
+  if (cardBody.classList.contains('mockup-card')) return; // mockup 有自己的 dblclick
+
+  const card = cardBody.closest('.design-card');
+  if (!card) return;
+
+  const vpW = canvasViewport.clientWidth;
+  const vpH = canvasViewport.clientHeight;
+
+  // 卡片中心在 canvas 坐标系中的位置
+  const cardLeft = parseFloat(card.style.left) || 0;
+  const cardTop  = parseFloat(card.style.top)  || 0;
+  const cardCx = cardLeft + cardBody.offsetWidth  / 2;
+  const cardCy = cardTop  + cardBody.offsetHeight / 2;
+
+  // 计算需要平移多少才能让卡片中心对准视口中心
+  // 视口中心 = panX + cardCx * zoomScale  =>  panX = vpW/2 - cardCx * zoomScale
+  const targetPanX = vpW / 2 - cardCx * zoomScale;
+  const targetPanY = vpH / 2 - cardCy * zoomScale;
+
+  // 平滑过渡画布
+  canvasContent.style.transition = 'transform 0.35s cubic-bezier(.4,0,.2,1)';
+  panX = targetPanX;
+  panY = targetPanY;
+  applyZoom();
+  selectCard(card);
+
+  setTimeout(() => { canvasContent.style.transition = ''; }, 380);
+});
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Delete' || e.key === 'Backspace') {

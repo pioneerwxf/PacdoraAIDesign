@@ -30,6 +30,20 @@
   --radius-xl: 16px;
 }
 
+/* ============ Dark Mode ============ */
+body.dark-mode {
+  --bg: #1E1E2E;
+  --bg-white: #252535;
+  --bg-canvas: #13131F;
+  --text-primary: #E8E8F0;
+  --text-secondary: #9999BB;
+  --text-muted: #6666AA;
+  --border: #383850;
+  --border-light: #2E2E40;
+  --shadow: rgba(0, 0, 0, 0.35);
+  --shadow-md: rgba(0, 0, 0, 0.5);
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -57,6 +71,61 @@ body {
   padding: 8px 14px;
   border-radius: var(--radius-lg);
   box-shadow: 0 2px 12px var(--shadow-md);
+}
+
+/* ============ Floating User Bar (always visible, left of chat) ============ */
+.canvas-user-bar {
+  position: fixed;
+  top: 12px;
+  right: calc(var(--chat-width) + 8px);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-white);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 5px 10px;
+  box-shadow: 0 2px 8px var(--shadow);
+  z-index: 120;
+  user-select: none;
+  transition: right 0.25s ease;
+}
+
+body.chat-collapsed .canvas-user-bar {
+  right: 8px;
+}
+
+.user-bar-credits {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.user-bar-avatar {
+  display: flex;
+  align-items: center;
+}
+
+.user-bar-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+}
+
+.user-bar-theme-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  transition: background 0.15s;
+}
+.user-bar-theme-btn:hover {
+  background: var(--primary-light);
+  color: var(--primary);
 }
 
 /* ============ Floating Chat Toggle Button ============ */
@@ -259,8 +328,34 @@ body {
   display: none;
 }
 
+/* Show toolbar only when selected */
 .design-card.selected .card-toolbar {
   display: flex;
+}
+
+/* Hover: 1px 彩色边框（cursor 模式下才显示） */
+body.cursor-mode .design-card:hover .dieline-card {
+  border-color: var(--card-border-dieline);
+}
+body.cursor-mode .design-card:hover .creation-card {
+  border-color: var(--card-border-creation);
+}
+body.cursor-mode .design-card:hover .mockup-card {
+  border-color: var(--card-border-mockup);
+}
+
+/* Selected: 2px 边框 + 轻微发光 */
+.design-card.selected .dieline-card {
+  border-color: var(--card-border-dieline);
+  box-shadow: 0 0 0 1px var(--card-border-dieline), 0 4px 16px rgba(76,175,80,0.2);
+}
+.design-card.selected .creation-card {
+  border-color: var(--card-border-creation);
+  box-shadow: 0 0 0 1px var(--card-border-creation), 0 4px 16px rgba(0,188,212,0.2);
+}
+.design-card.selected .mockup-card {
+  border-color: var(--card-border-mockup);
+  box-shadow: 0 0 0 1px var(--card-border-mockup), 0 4px 16px rgba(206,147,216,0.2);
 }
 
 .card-toolbar {
@@ -308,6 +403,19 @@ body {
   font-size: 12px;
 }
 
+/* Highlighted toolbar link (e.g. Separate Layers) */
+.card-toolbar-highlight {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--primary) !important;
+  font-weight: 600 !important;
+}
+
+.card-toolbar-highlight:hover {
+  color: var(--primary-hover) !important;
+}
+
 .card-download-btn {
   background: none;
   border: none;
@@ -345,12 +453,13 @@ body {
 
 .card-body {
   position: relative;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
   overflow: visible;
   cursor: move;
 }
 
 .dieline-card {
-  border: 1px solid var(--card-border-dieline);
+  border: 1px solid transparent;
   width: 500px;
 }
 
@@ -360,12 +469,12 @@ body {
 }
 
 .creation-card {
-  border: 1px solid var(--card-border-creation);
+  border: 1px solid transparent;
   width: 300px;
 }
 
 .mockup-card {
-  border: 1px solid var(--card-border-mockup);
+  border: 1px solid transparent;
   width: 400px;
   height: 500px;
 }
@@ -645,9 +754,78 @@ body {
   color: var(--primary);
 }
 
+.bottom-toolbar-divider {
+  width: 1px;
+  height: 28px;
+  background: var(--border);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
 .bottom-tool-btn.active {
   background: var(--primary-light);
   color: var(--primary);
+}
+
+/* ============ Frame Mode ============ */
+.frame-select-rect {
+  position: absolute;
+  border: 1.5px dashed #4F46E5;
+  background: rgba(79, 70, 229, 0.06);
+  pointer-events: none;
+  z-index: 200;
+}
+
+.canvas-frame {
+  position: absolute;
+  border: 1.5px solid #4F46E5;
+  background: transparent;
+  cursor: move;
+  z-index: 0;
+  border-radius: 2px;
+}
+
+.canvas-frame.selected-frame {
+  border-color: #7C3AED;
+  box-shadow: 0 0 0 1px rgba(124,58,237,0.3);
+}
+
+.frame-resize-handle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: #fff;
+  border: 1.5px solid #4F46E5;
+  border-radius: 2px;
+  z-index: 10;
+  pointer-events: auto;
+  display: none;
+}
+
+.canvas-frame.selected-frame .frame-resize-handle {
+  display: block;
+}
+
+.frame-resize-handle.tl { top: -5px; left: -5px; cursor: nwse-resize; }
+.frame-resize-handle.tr { top: -5px; right: -5px; cursor: nesw-resize; }
+.frame-resize-handle.bl { bottom: -5px; left: -5px; cursor: nesw-resize; }
+.frame-resize-handle.br { bottom: -5px; right: -5px; cursor: nwse-resize; }
+.frame-resize-handle.tm { top: -5px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+.frame-resize-handle.bm { bottom: -5px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+.frame-resize-handle.ml { top: 50%; left: -5px; transform: translateY(-50%); cursor: ew-resize; }
+.frame-resize-handle.mr { top: 50%; right: -5px; transform: translateY(-50%); cursor: ew-resize; }
+
+.canvas-frame-label {
+  position: absolute;
+  top: -20px;
+  left: 0;
+  font-size: 11px;
+  color: #4F46E5;
+  font-weight: 500;
+  white-space: nowrap;
+  user-select: none;
+  pointer-events: none;
+  line-height: 1;
 }
 
 /* ============ Chat Panel ============ */
@@ -750,6 +928,49 @@ body {
   border: none;
   position: relative;
   z-index: 1;
+}
+
+/* Chat reference image from selected card — bottom aligned with input top */
+.chat-ref-image {
+  position: absolute;
+  bottom: 168px;
+  left: 20px;
+  z-index: 300;
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+}
+
+.chat-ref-image img {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 2px solid var(--primary);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  background: #fff;
+}
+
+.chat-ref-close {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #333;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+}
+
+.chat-ref-close:hover {
+  background: var(--danger);
 }
 
 .panel-collapse-btn {
@@ -1904,4 +2125,909 @@ body {
   flex: 1;
   width: 100%;
   border: none;
+}
+
+/* ============ Pin Cursor Mode ============ */
+/* Pin icon only on card images and card body (the placeable area) */
+.canvas-viewport.pin-cursor .card-body,
+.canvas-viewport.pin-cursor .card-image,
+.canvas-viewport.pin-cursor .card-body img,
+.canvas-viewport.pin-cursor .mockup-iframe {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='32' viewBox='0 0 24 32'%3E%3Cpath d='M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z' fill='%2300BCD4'/%3E%3Ccircle cx='12' cy='9' r='3' fill='white'/%3E%3C/svg%3E") 12 32, crosshair !important;
+}
+
+/* Normal cursor for toolbar, inputs, buttons in pin mode */
+.canvas-viewport.pin-cursor .card-toolbar,
+.canvas-viewport.pin-cursor .card-toolbar *,
+.canvas-viewport.pin-cursor .inline-edit-dialog,
+.canvas-viewport.pin-cursor .inline-edit-dialog *,
+.canvas-viewport.pin-cursor .card-mode-toggle,
+.canvas-viewport.pin-cursor .card-mode-toggle *,
+.canvas-viewport.pin-cursor .resize-handle,
+.canvas-viewport.pin-cursor .modify-history-bar,
+.canvas-viewport.pin-cursor .modify-history-bar *,
+.canvas-viewport.pin-cursor input,
+.canvas-viewport.pin-cursor textarea,
+.canvas-viewport.pin-cursor button,
+.canvas-viewport.pin-cursor select {
+  cursor: default !important;
+}
+
+.canvas-viewport.pin-cursor .inline-dialog-input {
+  cursor: text !important;
+}
+
+/* ============ Edit Text Panel (Draggable Floating Window) ============ */
+.edit-text-panel {
+  position: fixed;
+  background: var(--bg-white);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0,0,0,0.06);
+  z-index: 5000;
+  width: 420px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  resize: both;
+  min-width: 320px;
+  min-height: 260px;
+}
+
+.edit-text-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  cursor: grab;
+  user-select: none;
+  background: var(--bg);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+}
+
+.edit-text-panel-header:active {
+  cursor: grabbing;
+}
+
+.edit-text-panel-header h3 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.edit-text-panel-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: var(--text-secondary);
+}
+
+.edit-text-panel-close:hover {
+  background: var(--bg);
+}
+
+.edit-text-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+.edit-text-row {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  margin-bottom: 12px;
+  transition: border-color 0.15s;
+}
+
+.edit-text-row:focus-within {
+  border-color: var(--primary);
+}
+
+.edit-text-row-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.edit-text-input {
+  width: 100%;
+  border: none;
+  outline: none;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--text-primary);
+  background: transparent;
+  resize: vertical;
+  min-height: 24px;
+}
+
+.edit-text-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.edit-text-controls select,
+.edit-text-controls input[type="number"] {
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: inherit;
+  outline: none;
+}
+
+.edit-text-controls select:focus,
+.edit-text-controls input[type="number"]:focus {
+  border-color: var(--primary);
+}
+
+.edit-text-controls input[type="number"] {
+  width: 56px;
+}
+
+.edit-text-align-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all 0.15s;
+}
+
+.edit-text-align-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.edit-text-align-btn.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.edit-text-panel-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+}
+
+.edit-text-panel-footer button {
+  padding: 8px 20px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.edit-text-cancel-btn {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+}
+
+.edit-text-cancel-btn:hover {
+  background: var(--border);
+}
+
+.edit-text-save-btn {
+  background: var(--primary);
+  border: none;
+  color: #fff;
+}
+
+.edit-text-save-btn:hover {
+  background: var(--primary-hover);
+}
+
+/* ============ Edit Elements Panel Rows ============ */
+.edit-element-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.edit-element-row:hover {
+  border-color: var(--primary-light);
+  background: #FAFAFA;
+}
+
+.edit-element-row:hover .edit-element-replace-btn {
+  opacity: 1;
+}
+
+.edit-element-row.element-replaced {
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+
+.edit-element-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.edit-element-thumb {
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.edit-element-info {
+  min-width: 0;
+}
+
+.edit-element-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.edit-element-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+
+.edit-element-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.edit-element-input {
+  width: 120px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  color: var(--text-primary);
+  background: var(--bg-white);
+}
+
+.edit-element-input:focus {
+  border-color: var(--primary);
+}
+
+.edit-element-replace-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 5px 10px;
+  background: var(--bg-white);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+
+.edit-element-replace-btn:hover {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+/* No overlay — floating window is non-blocking */
+
+/* ============ Layout Panel (floating beside mockup card) ============ */
+.layout-panel {
+  position: fixed;
+  background: var(--bg-white);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0,0,0,0.06);
+  z-index: 5000;
+  width: 320px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.layout-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  cursor: grab;
+  user-select: none;
+  background: var(--bg);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+}
+
+.layout-panel-header:active {
+  cursor: grabbing;
+}
+
+.layout-panel-header h3 {
+  font-size: 14px;
+  margin: 0;
+  font-weight: 600;
+}
+
+.layout-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.layout-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.layout-grid-item {
+  border-radius: var(--radius);
+  overflow: hidden;
+  cursor: pointer;
+  border: 2px solid var(--border-light);
+  transition: border-color 0.15s, transform 0.1s;
+  background: #F5F5F7;
+  aspect-ratio: 4/3;
+}
+
+.layout-grid-item:hover {
+  border-color: var(--primary);
+  transform: scale(1.02);
+}
+
+.layout-grid-item.active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-light);
+}
+
+.layout-grid-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.edit-text-loading {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.edit-text-loading .loading-dots {
+  display: inline-flex;
+  margin-left: 8px;
+}
+
+/* ============ 3D Model Window on Dieline Card ============ */
+.dieline-3d-window {
+  position: absolute;
+  z-index: 5;
+  background: var(--bg-white);
+  border: 1px solid var(--card-border-dieline);
+  border-radius: var(--radius);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: box-shadow 0.2s, opacity 0.25s;
+}
+
+.dieline-3d-window.hidden-3d {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.dieline-3d-window iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  pointer-events: none;
+}
+
+.dieline-3d-window:hover iframe {
+  pointer-events: auto;
+}
+
+/* Connecting line from 3D window to dieline card */
+.dieline-3d-connector {
+  position: absolute;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.dieline-3d-connector.hidden-3d {
+  opacity: 0;
+}
+
+.dieline-3d-connector line {
+  stroke: var(--card-border-dieline);
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+}
+
+/* Hover overlay with buttons */
+.dieline-3d-window-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transition: opacity 0.2s;
+  z-index: 2;
+}
+
+.dieline-3d-window:hover .dieline-3d-window-overlay {
+  opacity: 1;
+}
+
+.dieline-3d-window-btn {
+  padding: 6px 14px;
+  background: var(--bg-white);
+  border: none;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--text-primary);
+  white-space: nowrap;
+  transition: background 0.15s, transform 0.1s;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.dieline-3d-window-btn:hover {
+  background: var(--primary);
+  color: #fff;
+  transform: scale(1.05);
+}
+
+/* ============ Modify Dieline / Change Model Modals ============ */
+.dieline-dimension-modal,
+.change-model-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--bg-white);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  z-index: 6000;
+  width: 400px;
+  padding: 24px;
+}
+
+.dieline-dimension-modal h3,
+.change-model-modal h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+.dimension-input-group {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.dimension-input-group label {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.dimension-input-group input {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 14px;
+  outline: none;
+  font-family: inherit;
+}
+
+.dimension-input-group input:focus {
+  border-color: var(--primary);
+}
+
+.modal-btn-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.modal-btn-cancel {
+  padding: 8px 20px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.modal-btn-cancel:hover {
+  background: var(--border);
+}
+
+.modal-btn-confirm {
+  padding: 8px 20px;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.modal-btn-confirm:hover {
+  background: var(--primary-hover);
+}
+
+.model-overlay-bg {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+  z-index: 5999;
+}
+
+.change-model-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 16px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.change-model-item {
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.1s;
+  aspect-ratio: 1;
+}
+
+.change-model-item:hover {
+  border-color: var(--primary);
+  transform: scale(1.03);
+}
+
+.change-model-item.active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-light);
+}
+
+.change-model-item iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  pointer-events: none;
+}
+
+/* ============ Progress Disk (floating bottom-left) ============ */
+.progress-disk {
+  position: fixed;
+  bottom: 70px;
+  left: 20px;
+  z-index: 8000;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.progress-disk:hover {
+  transform: scale(1.08);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+}
+
+.progress-disk svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 52px;
+  height: 52px;
+  transform: rotate(-90deg);
+}
+
+.progress-disk-circle {
+  fill: none;
+  stroke: #E5E5E5;
+  stroke-width: 3;
+}
+
+.progress-disk-bar {
+  fill: none;
+  stroke: #4CAF50;
+  stroke-width: 3;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.3s ease;
+}
+
+.progress-disk-text {
+  font-size: 12px;
+  font-weight: 700;
+  color: #333;
+  z-index: 1;
+}
+
+/* Task detail panel (shows when clicking progress disk) */
+.task-detail-panel {
+  position: fixed;
+  bottom: 130px;
+  left: 20px;
+  z-index: 8001;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.15), 0 0 0 1px rgba(0,0,0,0.06);
+  width: 320px;
+  padding: 16px;
+  display: none;
+}
+
+.task-detail-panel.visible {
+  display: block;
+}
+
+.task-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.task-detail-header h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.task-detail-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #999;
+  font-size: 14px;
+}
+
+.task-detail-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid #f0f0f0;
+}
+
+.task-detail-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.task-detail-icon.running {
+  background: #E8F5E9;
+  color: #4CAF50;
+}
+
+.task-detail-icon.done {
+  background: #E8F5E9;
+  color: #4CAF50;
+}
+
+.task-detail-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.task-detail-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #333;
+}
+
+.task-detail-status {
+  font-size: 11px;
+  color: #999;
+  margin-top: 2px;
+}
+
+.task-detail-progress {
+  width: 100%;
+  height: 4px;
+  background: #E5E5E5;
+  border-radius: 2px;
+  margin-top: 6px;
+  overflow: hidden;
+}
+
+.task-detail-progress-bar {
+  height: 100%;
+  background: #4CAF50;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.task-detail-action {
+  padding: 4px 12px;
+  background: #7C3AED;
+  color: #fff;
+  border: none;
+  border-radius: 16px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.task-detail-action:hover {
+  background: #6D28D9;
+}
+
+/* Pin / Edit Text modified image */
+.pin-modified-card {
+  border: 1px dashed var(--primary) !important;
+}
+
+/* ============ Modify History Bar (below card, counter-scaled like toolbar) ============ */
+.modify-history-bar {
+  background: #F3F3F3;
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius);
+  overflow: hidden;
+  position: absolute;
+  left: 0;
+  z-index: 5;
+  transform-origin: left top;
+  will-change: transform;
+}
+
+.modify-history-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  user-select: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  transition: color 0.15s, background 0.15s;
+}
+
+.modify-history-toggle:hover {
+  color: var(--text-primary);
+  background: #EAEAEA;
+}
+
+.modify-history-arrow {
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+
+.modify-history-bar.expanded .modify-history-arrow {
+  transform: rotate(90deg);
+}
+
+.modify-history-content {
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.diff-item {
+  font-size: 11px;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.diff-item strong {
+  color: var(--text-secondary);
+  font-weight: 600;
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-bottom: 2px;
+}
+
+.diff-text-change {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.diff-from {
+  text-decoration: line-through;
+  color: var(--danger);
+  background: #FEF2F2;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+
+.diff-to {
+  color: #16A34A;
+  background: #F0FDF4;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.diff-style-change {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-style: italic;
 }

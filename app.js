@@ -75,6 +75,40 @@ function updateCounterScale() {
     el.style.transform = `scale(${inv})`;
   });
 
+  // Counter-scale modify-history-bar: match card body screen width, text stays readable size
+  // The bar has scale(inv) applied, so its CSS px = its screen px (the two scales cancel out).
+  // Card body screen width = bodyW * zoomScale, so set bar CSS width to the same value.
+  document.querySelectorAll('.modify-history-bar').forEach(bar => {
+    const card = bar.closest('.design-card');
+    if (!card) return;
+    const body = card.querySelector('.card-body');
+    if (!body) return;
+    const bodyH = parseFloat(body.style.height) || body.offsetHeight;
+    const bodyW = parseFloat(body.style.width) || body.offsetWidth;
+    const GAP = 2; // screen-px gap between card bottom edge and bar top
+    bar.style.top = (bodyH + GAP * inv) + 'px';
+    // Width: bodyW (canvas px) × zoomScale = screen px = CSS px after counter-scale
+    bar.style.width = (bodyW * zoomScale) + 'px';
+    bar.style.transform = `scale(${inv})`;
+  });
+
+  // Counter-scale frame resize handles
+  document.querySelectorAll('.frame-resize-handle').forEach(el => {
+    const size = 8 * inv;
+    const offset = -Math.round(size / 2);
+    el.style.width = size + 'px';
+    el.style.height = size + 'px';
+    el.style.borderWidth = (1.5 * inv) + 'px';
+    if (el.classList.contains('tl') || el.classList.contains('tr')) el.style.top = offset + 'px';
+    if (el.classList.contains('bl') || el.classList.contains('br')) el.style.bottom = offset + 'px';
+    if (el.classList.contains('tl') || el.classList.contains('bl') || el.classList.contains('ml')) el.style.left = offset + 'px';
+    if (el.classList.contains('tr') || el.classList.contains('br') || el.classList.contains('mr')) el.style.right = offset + 'px';
+    if (el.classList.contains('tm') || el.classList.contains('bm')) { el.style.left = '50%'; el.style.transform = `translateX(-50%)`; }
+    if (el.classList.contains('ml') || el.classList.contains('mr')) { el.style.top = '50%'; el.style.transform = `translateY(-50%)`; }
+    if (el.classList.contains('tm')) el.style.top = offset + 'px';
+    if (el.classList.contains('bm')) el.style.bottom = offset + 'px';
+  });
+
   // Keep card borders at 1px screen size regardless of zoom
   document.querySelectorAll('.card-body').forEach(el => {
     el.style.borderWidth = (1 * inv) + 'px';
@@ -156,6 +190,22 @@ canvasViewport.addEventListener('wheel', (e) => {
 let panStartX = 0, panStartY = 0, panXStart = 0, panYStart = 0;
 
 canvasViewport.addEventListener('mousedown', (e) => {
+  // Frame mode: draw rubber-band selection on empty canvas
+  if (currentToolMode === 'frame' && !e.target.closest('.canvas-frame') && !e.target.closest('.design-card')) {
+    const contentRect = canvasContent.getBoundingClientRect();
+    frameSelectStart = {
+      x: (e.clientX - contentRect.left) / zoomScale,
+      y: (e.clientY - contentRect.top) / zoomScale
+    };
+    frameDrawing = true;
+    frameSelectEl = document.createElement('div');
+    frameSelectEl.className = 'frame-select-rect';
+    frameSelectEl.style.cssText = `left:${frameSelectStart.x}px;top:${frameSelectStart.y}px;width:0;height:0;`;
+    canvasContent.appendChild(frameSelectEl);
+    e.preventDefault();
+    return;
+  }
+
   // Pan with middle mouse button OR clicking on empty canvas background
   if (e.button === 1 || (e.target === canvasContent || e.target === canvasViewport)) {
     isPanning = true;
@@ -169,6 +219,21 @@ canvasViewport.addEventListener('mousedown', (e) => {
 });
 
 window.addEventListener('mousemove', (e) => {
+  // Frame: update rubber-band selection rect
+  if (frameDrawing && frameSelectStart && frameSelectEl) {
+    const contentRect = canvasContent.getBoundingClientRect();
+    const curX = (e.clientX - contentRect.left) / zoomScale;
+    const curY = (e.clientY - contentRect.top) / zoomScale;
+    const x = Math.min(curX, frameSelectStart.x);
+    const y = Math.min(curY, frameSelectStart.y);
+    const w = Math.abs(curX - frameSelectStart.x);
+    const h = Math.abs(curY - frameSelectStart.y);
+    frameSelectEl.style.left = x + 'px';
+    frameSelectEl.style.top = y + 'px';
+    frameSelectEl.style.width = w + 'px';
+    frameSelectEl.style.height = h + 'px';
+    return;
+  }
   if (isPanning) {
     panX = panXStart + (e.clientX - panStartX);
     panY = panYStart + (e.clientY - panStartY);
@@ -177,6 +242,22 @@ window.addEventListener('mousemove', (e) => {
 });
 
 window.addEventListener('mouseup', () => {
+  // Frame: finalize selection and create frame
+  if (frameDrawing && frameSelectEl) {
+    frameDrawing = false;
+    const selLeft = parseFloat(frameSelectEl.style.left);
+    const selTop = parseFloat(frameSelectEl.style.top);
+    const selW = parseFloat(frameSelectEl.style.width);
+    const selH = parseFloat(frameSelectEl.style.height);
+    frameSelectEl.remove();
+    frameSelectEl = null;
+    frameSelectStart = null;
+    if (selW > 10 && selH > 10) {
+      createCanvasFrame(selLeft, selTop, selLeft + selW, selTop + selH);
+    }
+    _activateCursorMode();
+    return;
+  }
   if (isPanning) {
     isPanning = false;
     canvasViewport.style.cursor = 'grab';
@@ -185,16 +266,27 @@ window.addEventListener('mouseup', () => {
 
 // ============ Card Selection ============
 function selectCard(card) {
+  const prevSelected = document.querySelector('.design-card.selected');
   document.querySelectorAll('.design-card.selected').forEach(c => c.classList.remove('selected'));
+  // 选中卡片时取消所有 Frame 的选中状态
+  document.querySelectorAll('.canvas-frame.selected-frame').forEach(f => f.classList.remove('selected-frame'));
   if (card) {
     card.classList.add('selected');
-    // Focus canvas viewport so keyboard shortcuts (Delete, Copy, etc.) work
     canvasViewport.focus({ preventScroll: true });
   }
+  // Auto-close floating panels when selecting a different card or deselecting
+  if (card !== prevSelected) {
+    closeAllFloatingPanels();
+  }
+  // Send selected card's image to chat panel (skip mockup/3D cards)
+  syncSelectedCardToChat(card);
 }
 
 // Click on card-body to select, click elsewhere to deselect
 canvasViewport.addEventListener('click', (e) => {
+  // Clicking empty area inside a frame selects the frame — don't deselect cards
+  if (e.target.closest('.canvas-frame') && !e.target.closest('.design-card')) return;
+
   const cardBody = e.target.closest('.card-body');
   if (cardBody) {
     // If user clicked directly on the mockup iframe area, don't toggle selection
@@ -222,13 +314,53 @@ document.addEventListener('click', () => {
   projectSelector.classList.remove('open');
 });
 
-function newProject() {
-  // TODO: implement project creation UI
+async function newProject() {
+  // Clear canvas and start fresh
+  const cards = canvasContent.querySelectorAll('.design-card');
+  const hints = canvasContent.querySelectorAll('.demo-project-hint');
+  cards.forEach(c => c.remove());
+  hints.forEach(h => h.remove());
+
+  // Close all floating panels and progress disk
+  closeAllFloatingPanels();
+  removeProgressDisk();
+  clearChatRefImage();
+
+  // Reset pan/zoom
+  panX = 0;
+  panY = 0;
+  zoomScale = 1;
+  applyZoom();
+
+  // Create project on server to get a persistent ID
+  let projectId;
+  try {
+    const res = await fetch('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'New Project' })
+    });
+    const project = await res.json();
+    projectId = project.id;
+  } catch (e) {
+    // Fallback to local ID if server unreachable
+    projectId = 'proj-' + Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 6);
+  }
+
+  window.history.pushState({ projectId }, '', '?id=' + projectId);
   document.querySelector('.project-name').textContent = 'New Project';
+  document.querySelector('.project-name').dataset.projectId = projectId;
+  currentProjectId = projectId;
+  console.log('New project created:', projectId);
+
+  // Reset text state cache
+  cardTextState.clear();
+  pinCache.clear();
 }
 
 function deleteProject() {
   if (confirm('Delete this project?')) {
+    newProject();
     document.querySelector('.project-name').textContent = 'Untitled';
   }
 }
@@ -237,9 +369,15 @@ function deleteProject() {
 function toggleChatPanel() {
   const panel = document.getElementById('chatPanel');
   const toggle = document.getElementById('floatingChatToggle');
+  const chatBtn = document.getElementById('userBarChatBtn');
+  const chatDivider = document.getElementById('userBarChatDivider');
   panel.classList.toggle('collapsed');
   const isCollapsed = panel.classList.contains('collapsed');
   toggle.classList.toggle('visible', isCollapsed);
+  document.body.classList.toggle('chat-collapsed', isCollapsed);
+  // 收起时在用户栏显示聊天按钮，展开时隐藏
+  if (chatBtn) chatBtn.style.display = isCollapsed ? 'flex' : 'none';
+  if (chatDivider) chatDivider.style.display = isCollapsed ? 'block' : 'none';
 }
 
 // ============ Packify-integrated Chat ============
@@ -401,7 +539,7 @@ function addToCanvas(imageUrl) {
         <span class="card-toolbar-sep">|</span>
         <span class="card-toolbar-link" onclick="event.stopPropagation();">3D mockup</span>
         <span class="card-toolbar-sep">|</span>
-        <span class="card-toolbar-link" onclick="event.stopPropagation();">Edit text</span>
+        <span class="card-toolbar-link" onclick="event.stopPropagation(); editText(this)">Edit text</span>
         <span class="card-toolbar-sep">|</span>
         <button class="card-download-btn" onclick="event.stopPropagation();">
           <i class="fi fi-rr-download" style="font-size:12px;color:#333;"></i>
@@ -417,6 +555,12 @@ function addToCanvas(imageUrl) {
       <div class="resize-handle tl"></div><div class="resize-handle tr"></div><div class="resize-handle bl"></div><div class="resize-handle br"></div><div class="resize-handle tm"></div><div class="resize-handle bm"></div><div class="resize-handle ml"></div><div class="resize-handle mr"></div>
     </div>
   `;
+
+  // Store base64 immediately for data URL images (avoids canvas re-encode on edit)
+  if (imageUrl && imageUrl.startsWith('data:image')) {
+    const b64 = imageUrl.split(',')[1];
+    if (b64) card.dataset.storedBase64 = b64;
+  }
 
   canvasContent.appendChild(card);
   applyZoom();
@@ -445,17 +589,22 @@ function getCardImageUrl(card) {
   return img ? img.src : null;
 }
 
-function createLoadingDielineCard(spot, width, height) {
+function createLoadingDielineCard(spot, width, height, opts) {
+  const cardType = (opts && opts.type) || 'dieline';
+  const labelText = (opts && opts.label) || '# 2D Dieline';
+  const labelClass = (opts && opts.labelClass) || 'card-label';
+  const bodyClass = cardType === 'creation' ? 'creation-card' : cardType === 'mockup' ? 'mockup-card' : 'dieline-card';
+
   const card = document.createElement('div');
   card.className = 'design-card';
-  card.id = 'card-dieline-generating';
+  card.id = 'card-generating-' + Date.now();
   card.style.left = spot.x + 'px';
   card.style.top = spot.y + 'px';
-  card.setAttribute('data-type', 'dieline');
+  card.setAttribute('data-type', cardType);
 
   card.innerHTML = `
-    <div class="card-body dieline-card" style="width:${width}px;">
-      <div class="card-label"># 2D Dieline</div>
+    <div class="card-body ${bodyClass}" style="width:${width}px;">
+      <div class="${labelClass}">${labelText}</div>
       <div class="dieline-generating" style="height:${height}px;">
         <span class="generating-label">Generating</span>
       </div>
@@ -474,11 +623,15 @@ function replaceDielineLoadingWithImage(loadingCard, imageUrl) {
       <div class="card-toolbar-icon">
         <i class="fi fi-rr-bulb" style="color:#7C3AED;font-size:12px;"></i>
       </div>
-      <span class="card-toolbar-link" onclick="event.stopPropagation(); editText('dieline')">Edit Text</span>
+      <span class="card-toolbar-link" onclick="event.stopPropagation(); editText(this)">Edit Text</span>
       <span class="card-toolbar-sep">|</span>
-      <span class="card-toolbar-link" onclick="event.stopPropagation(); editElements('dieline')">Edit Elements</span>
+      <span class="card-toolbar-link" onclick="event.stopPropagation(); editElements(this)">Edit Elements</span>
       <span class="card-toolbar-sep">|</span>
       <span class="card-toolbar-link" onclick="event.stopPropagation(); showMockup('dieline')">Mockup</span>
+      <span class="card-toolbar-sep">|</span>
+      <span class="card-toolbar-link card-toolbar-highlight" onclick="event.stopPropagation(); separateLayers(this)">
+        <i class="fi fi-rr-layers" style="font-size:11px;"></i> Separate Layers
+      </span>
       <span class="card-toolbar-sep">|</span>
       <button class="card-download-btn" onclick="event.stopPropagation(); downloadCard('dieline')">
         <i class="fi fi-rr-download" style="font-size:12px;color:#333;"></i>
@@ -680,8 +833,14 @@ function canvasRedo() {
 }
 
 let currentToolMode = 'cursor';
+document.body.classList.add('cursor-mode'); // default mode on load
 
-function setToolMode(mode) {
+// ============ Frame Mode state ============
+let frameDrawing = false;
+let frameSelectStart = null; // canvas-space {x, y}
+let frameSelectEl = null;    // rubber-band DOM element
+
+function setToolMode(mode, triggerBtn) {
   // Dieline and Mockup open iframe modals instead of switching tool mode
   if (mode === 'dieline') {
     openIframeModal('https://www.pacdora.com/dielines', 'Pacdora Dielines');
@@ -691,11 +850,169 @@ function setToolMode(mode) {
     openIframeModal('https://www.pacdora.com/mockups', 'Pacdora Mockups');
     return;
   }
+  if (mode === 'templates') {
+    openIframeModal('https://www.pacdora.com/resource/snack-packaging', 'Choose a design templates and start');
+    return;
+  }
 
   currentToolMode = mode;
   document.querySelectorAll('.bottom-tool-btn').forEach(btn => btn.classList.remove('active'));
-  event.currentTarget.classList.add('active');
-  canvasViewport.style.cursor = mode === 'pin' ? 'crosshair' : 'grab';
+  const btn = triggerBtn || (typeof event !== 'undefined' && event?.currentTarget);
+  if (btn) btn.classList.add('active');
+
+  if (mode === 'pin') {
+    canvasViewport.classList.add('pin-cursor');
+    canvasViewport.style.cursor = 'default';
+    document.body.classList.remove('cursor-mode');
+  } else if (mode === 'frame') {
+    canvasViewport.classList.remove('pin-cursor');
+    canvasViewport.style.cursor = 'crosshair';
+    document.body.classList.remove('cursor-mode');
+  } else {
+    canvasViewport.classList.remove('pin-cursor');
+    canvasViewport.style.cursor = 'grab';
+    document.body.classList.add('cursor-mode');
+  }
+}
+
+// ============ Theme Toggle ============
+function toggleTheme() {
+  const isDark = document.body.classList.toggle('dark-mode');
+  const icon = document.getElementById('themeIcon');
+  if (icon) {
+    icon.className = isDark ? 'fi fi-rr-sun' : 'fi fi-rr-moon';
+    icon.style.fontSize = '14px';
+  }
+  localStorage.setItem('pacdora-theme', isDark ? 'dark' : 'light');
+}
+
+// 初始化时恢复主题
+(function initTheme() {
+  const saved = localStorage.getItem('pacdora-theme');
+  if (saved === 'dark') {
+    document.body.classList.add('dark-mode');
+    const icon = document.getElementById('themeIcon');
+    if (icon) { icon.className = 'fi fi-rr-sun'; icon.style.fontSize = '14px'; }
+  }
+})();
+
+function _activateCursorMode() {
+  currentToolMode = 'cursor';
+  canvasViewport.classList.remove('pin-cursor');
+  canvasViewport.style.cursor = 'grab';
+  document.body.classList.add('cursor-mode');
+  document.querySelectorAll('.bottom-tool-btn').forEach(btn => btn.classList.remove('active'));
+  const cursorBtn = document.querySelector('.bottom-tool-btn[title="Cursor Mode"]');
+  if (cursorBtn) cursorBtn.classList.add('active');
+}
+
+function createCanvasFrame(selLeft, selTop, selRight, selBottom) {
+  const PAD = 16;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const members = [];
+
+  document.querySelectorAll('.design-card').forEach(card => {
+    const cx = parseFloat(card.style.left) || 0;
+    const cy = parseFloat(card.style.top) || 0;
+    const body = card.querySelector('.card-body');
+    if (!body) return;
+    const cw = body.offsetWidth;
+    const ch = body.offsetHeight;
+    // Include cards that overlap the selection rect
+    if (cx < selRight && cx + cw > selLeft && cy < selBottom && cy + ch > selTop) {
+      if (!card.id) card.id = 'card-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+      members.push(card);
+      minX = Math.min(minX, cx);
+      minY = Math.min(minY, cy);
+      maxX = Math.max(maxX, cx + cw);
+      maxY = Math.max(maxY, cy + ch);
+    }
+  });
+
+  if (members.length === 0) return;
+
+  // Use selection rect as frame bounds (with padding), but clip to card extents
+  const frameLeft = Math.min(selLeft, minX) - PAD;
+  const frameTop = Math.min(selTop, minY) - PAD;
+  const frameRight = Math.max(selRight, maxX) + PAD;
+  const frameBottom = Math.max(selBottom, maxY) + PAD;
+
+  const frameEl = document.createElement('div');
+  frameEl.className = 'canvas-frame';
+  frameEl.dataset.members = members.map(c => c.id).join(',');
+  frameEl.style.left = frameLeft + 'px';
+  frameEl.style.top = frameTop + 'px';
+  frameEl.style.width = (frameRight - frameLeft) + 'px';
+  frameEl.style.height = (frameBottom - frameTop) + 'px';
+  frameEl.innerHTML = `
+    <div class="canvas-frame-label"># Frame</div>
+    <div class="frame-resize-handle tl"></div><div class="frame-resize-handle tr"></div>
+    <div class="frame-resize-handle bl"></div><div class="frame-resize-handle br"></div>
+    <div class="frame-resize-handle tm"></div><div class="frame-resize-handle bm"></div>
+    <div class="frame-resize-handle ml"></div><div class="frame-resize-handle mr"></div>
+  `;
+  // Insert behind all cards
+  canvasContent.insertBefore(frameEl, canvasContent.firstChild);
+  initFrameDrag(frameEl);
+}
+
+function initFrameDrag(frameEl) {
+  let isDragging = false;
+  let startClientX, startClientY;
+  let startFrameLeft, startFrameTop;
+  let memberStarts = [];
+
+  frameEl.addEventListener('mousedown', (e) => {
+    if (e.target.closest('.design-card')) return;
+    if (e.target.closest('.frame-resize-handle')) return; // resize 由单独逻辑处理
+    isDragging = true;
+    startClientX = e.clientX;
+    startClientY = e.clientY;
+    startFrameLeft = parseFloat(frameEl.style.left) || 0;
+    startFrameTop = parseFloat(frameEl.style.top) || 0;
+    const ids = frameEl.dataset.members ? frameEl.dataset.members.split(',').filter(Boolean) : [];
+    memberStarts = ids.map(id => {
+      const card = document.getElementById(id);
+      return card ? { card, x: parseFloat(card.style.left) || 0, y: parseFloat(card.style.top) || 0 } : null;
+    }).filter(Boolean);
+    frameEl.classList.add('selected-frame');
+    e.preventDefault();
+    e.stopPropagation();
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    const dx = (e.clientX - startClientX) / zoomScale;
+    const dy = (e.clientY - startClientY) / zoomScale;
+    frameEl.style.left = (startFrameLeft + dx) + 'px';
+    frameEl.style.top = (startFrameTop + dy) + 'px';
+    memberStarts.forEach(({ card, x, y }) => {
+      card.style.left = (x + dx) + 'px';
+      card.style.top = (y + dy) + 'px';
+    });
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (isDragging) {
+      isDragging = false;
+    }
+  });
+
+  // Click outside frame removes selection highlight
+  document.addEventListener('mousedown', (e) => {
+    if (!e.target.closest('.canvas-frame')) {
+      frameEl.classList.remove('selected-frame');
+    }
+  });
+
+  // Delete key removes the frame (but not its member cards)
+  document.addEventListener('keydown', (e) => {
+    if ((e.key === 'Delete' || e.key === 'Backspace') && frameEl.classList.contains('selected-frame')) {
+      const focused = document.activeElement;
+      if (focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA' || focused.isContentEditable)) return;
+      frameEl.remove();
+    }
+  });
 }
 
 function openIframeModal(url, title) {
@@ -733,9 +1050,36 @@ function switchCardMode(btn, mode) {
   const card = btn.closest('.design-card');
   const cardBody = card.querySelector('.card-body');
   const currentW = cardBody.offsetWidth;
+  const currentH = cardBody.offsetHeight;
+
+  // Save 2D state ONCE before first switch to 3D
+  if (mode === '3d' && !card.dataset.saved2d) {
+    card.dataset.saved2d = '1';
+    card.dataset.origW = currentW;
+    card.dataset.origH = currentH;
+    card.dataset.origBodyClass = cardBody.className;
+    const label = cardBody.querySelector('.card-label');
+    if (label) {
+      card.dataset.origLabel = label.textContent;
+      card.dataset.origLabelClass = label.className;
+    }
+    // Save image src
+    const img = cardBody.querySelector('.card-image');
+    if (img) card.dataset.origImgSrc = img.src;
+  }
+
+  // Show/hide 3D model window
+  const win3d = card.querySelector('.dieline-3d-window');
+  const conn3d = card.querySelector('.dieline-3d-connector');
+  if (mode === '3d') {
+    if (win3d) win3d.classList.add('hidden-3d');
+    if (conn3d) conn3d.classList.add('hidden-3d');
+  } else {
+    if (win3d) win3d.classList.remove('hidden-3d');
+    if (conn3d) conn3d.classList.remove('hidden-3d');
+  }
 
   if (mode === '3d') {
-    // Switch to 3D: replace image with iframe
     const img = cardBody.querySelector('.card-image');
     if (img) {
       const iframe = document.createElement('iframe');
@@ -744,43 +1088,271 @@ function switchCardMode(btn, mode) {
       iframe.frameBorder = '0';
       iframe.allowFullscreen = true;
       img.replaceWith(iframe);
-      // Update label & border
+
       const label = cardBody.querySelector('.card-label');
       if (label) { label.textContent = '# 3D mockup'; label.className = 'card-label mockup-label'; }
-      cardBody.classList.remove('dieline-card', 'creation-card');
-      cardBody.classList.add('mockup-card');
-      // Keep same width, set height for iframe
+      cardBody.className = 'card-body mockup-card';
       cardBody.style.width = currentW + 'px';
-      cardBody.style.height = Math.round(currentW * 1.25) + 'px';
+      cardBody.style.height = currentH + 'px';
     }
   } else {
-    // Switch to 2D: replace iframe with image
     const iframe = cardBody.querySelector('.mockup-iframe');
     if (iframe) {
       const img = document.createElement('img');
-      img.src = 'images/mother-dairy-vanilla.png';
-      img.alt = '2D Dieline';
+      img.src = card.dataset.origImgSrc || 'images/mother-dairy-vanilla.png';
+      img.alt = '2D Image';
       img.className = 'card-image';
       iframe.replaceWith(img);
-      // Update label & border
+
+      // Restore original class (dieline-card or creation-card)
+      cardBody.className = card.dataset.origBodyClass || 'card-body dieline-card';
+
+      // Restore original label
       const label = cardBody.querySelector('.card-label');
-      if (label) { label.textContent = '# 2D Dieline'; label.className = 'card-label'; }
-      cardBody.classList.remove('mockup-card', 'creation-card');
-      cardBody.classList.add('dieline-card');
-      // Let image determine height naturally
-      cardBody.style.width = currentW + 'px';
-      cardBody.style.height = '';
+      if (label && card.dataset.origLabel) {
+        label.textContent = card.dataset.origLabel;
+        label.className = card.dataset.origLabelClass || 'card-label';
+      }
+
+      // Restore original dimensions — image fills width naturally
+      const origW = parseInt(card.dataset.origW) || currentW;
+      cardBody.style.width = origW + 'px';
+      cardBody.style.height = '';  // let image determine height
     }
   }
   applyZoom();
 }
 
-function editText(type) {
-  // Placeholder
+function editText(typeOrEl) {
+  let card;
+  if (typeOrEl instanceof HTMLElement) {
+    // Called with a DOM element — find the closest card
+    card = typeOrEl.closest('.design-card');
+  } else {
+    // Called with a type string — find selected card of that type, or first match
+    card = document.querySelector(`.design-card[data-type="${typeOrEl}"].selected`)
+      || document.querySelector(`.design-card[data-type="${typeOrEl}"]`);
+  }
+  if (!card) return;
+  openEditTextPanel(card);
 }
 
-function editElements(type) {
-  // Placeholder
+function editElements(elOrType) {
+  let card;
+  if (elOrType instanceof HTMLElement) {
+    card = elOrType.closest('.design-card');
+  } else {
+    card = document.querySelector(`.design-card[data-type="${elOrType}"].selected`)
+      || document.querySelector(`.design-card[data-type="${elOrType}"]`);
+  }
+  if (!card) return;
+  openEditElementsPanel(card);
+}
+
+function openEditElementsPanel(card) {
+  closeAllFloatingPanels();
+
+  const cardBody = card.querySelector('.card-body');
+  const cardRect = cardBody.getBoundingClientRect();
+
+  // Position next to card
+  let panelLeft = cardRect.right + 16;
+  let panelTop = cardRect.top;
+  const panelWidth = 440;
+  if (panelLeft + panelWidth > window.innerWidth - 20) {
+    panelLeft = cardRect.left - panelWidth - 16;
+  }
+  panelLeft = Math.max(12, Math.min(panelLeft, window.innerWidth - panelWidth - 12));
+  panelTop = Math.max(12, Math.min(panelTop, window.innerHeight - 300));
+
+  const panel = document.createElement('div');
+  panel.className = 'edit-text-panel';
+  panel.id = 'editElementsPanel';
+  panel.style.left = panelLeft + 'px';
+  panel.style.top = panelTop + 'px';
+  panel.style.width = panelWidth + 'px';
+  panel.innerHTML = `
+    <div class="edit-text-panel-header" id="editElementsDragHandle">
+      <h3 style="font-size:14px;margin:0;">Edit Elements</h3>
+      <button class="edit-text-panel-close" onclick="closeEditElementsPanel()">
+        <i class="fi fi-rr-cross-small" style="font-size:14px;"></i>
+      </button>
+    </div>
+    <div class="edit-text-panel-body" id="editElementsPanelBody">
+      <div class="edit-text-loading">
+        Extracting elements from image<span class="loading-dots"><span></span><span></span><span></span></span>
+      </div>
+    </div>
+    <div class="edit-text-panel-footer">
+      <button class="edit-text-cancel-btn" onclick="closeEditElementsPanel()">Cancel</button>
+      <button class="edit-text-save-btn" onclick="applyElementChanges()">Apply Changes</button>
+    </div>
+  `;
+  document.body.appendChild(panel);
+
+  // Draggable
+  initElementsPanelDrag(panel);
+
+  panel._card = card;
+  panel.dataset.cardId = card.id || '';
+
+  // Extract elements (simulated)
+  extractElementsFromCard(card);
+}
+
+// Type-to-emoji mapping for element thumbnails
+const ELEMENT_TYPE_ICONS = {
+  background: '🎨', logo: '🏷️', text: '📝', illustration: '🖼️', photo: '📷',
+  icon: '⭐', pattern: '🔲', barcode: '📊', badge: '✅', decoration: '✨'
+};
+
+async function extractElementsFromCard(card) {
+  const body = document.getElementById('editElementsPanelBody');
+  if (!body) return;
+
+  // Try to get image base64 for AI extraction
+  let imageBase64 = null;
+  try { imageBase64 = getCardImageAsBase64(card); } catch (e) {}
+
+  let elements = null;
+
+  if (imageBase64) {
+    try {
+      const res = await fetch('/api/extract-elements', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64 })
+      });
+      const data = await res.json();
+      if (res.ok && data.elements && data.elements.length > 0) {
+        elements = data.elements;
+      } else {
+        console.warn('Element extraction API error, using fallback:', data.error);
+      }
+    } catch (err) {
+      console.warn('Element extraction failed, using fallback:', err);
+    }
+  }
+
+  // Fallback demo elements
+  if (!elements) {
+    elements = [
+      { label: 'Background', type: 'background', desc: 'Main background color/pattern', position: 'center' },
+      { label: 'Brand Logo', type: 'logo', desc: 'Brand logo mark', position: 'top-center' },
+      { label: 'Product Photo', type: 'photo', desc: 'Main product image', position: 'center' },
+      { label: 'Splash Graphic', type: 'illustration', desc: 'Milk splash illustration', position: 'center' },
+      { label: 'Vanilla Icon', type: 'illustration', desc: 'Vanilla flower & pods', position: 'center-left' },
+      { label: 'Chocolate Pieces', type: 'decoration', desc: 'Chocolate chunks decoration', position: 'bottom-right' },
+      { label: 'Certification Badge', type: 'badge', desc: 'Quality certification mark', position: 'bottom-left' },
+      { label: 'QR Code', type: 'barcode', desc: 'QR code for product info', position: 'bottom-left' },
+      { label: 'Barcode', type: 'barcode', desc: 'Product barcode', position: 'bottom-right' },
+      { label: 'Social Icons', type: 'icon', desc: 'Facebook & Instagram icons', position: 'bottom-left' },
+    ];
+  }
+
+  // Check if panel still exists (user might have closed it during API call)
+  if (!document.getElementById('editElementsPanelBody')) return;
+
+  renderElementRows(elements);
+}
+
+function renderElementRows(elements) {
+  const body = document.getElementById('editElementsPanelBody');
+  if (!body) return;
+
+  body.innerHTML = elements.map((item, i) => {
+    const icon = ELEMENT_TYPE_ICONS[item.type] || '📎';
+    return `
+      <div class="edit-element-row" data-index="${i}">
+        <div class="edit-element-left">
+          <div class="edit-element-thumb">${icon}</div>
+          <div class="edit-element-info">
+            <div class="edit-element-label">${item.label}</div>
+            <div class="edit-element-desc">${item.desc}${item.position ? ' · ' + item.position : ''}</div>
+          </div>
+        </div>
+        <div class="edit-element-right">
+          <input type="text" class="edit-element-input" placeholder="Describe modification...">
+          <button class="edit-element-replace-btn" onclick="replaceElement(this, ${i})" title="Replace with local file">
+            <i class="fi fi-rr-refresh" style="font-size:11px;"></i> Replace
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function replaceElement(btn, index) {
+  // Create a hidden file input to let user pick a local file
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = 'image/*';
+  fileInput.style.display = 'none';
+  fileInput.onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const row = btn.closest('.edit-element-row');
+    const thumb = row.querySelector('.edit-element-thumb');
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      thumb.innerHTML = `<img src="${ev.target.result}" style="width:100%;height:100%;object-fit:cover;border-radius:4px;">`;
+      row.classList.add('element-replaced');
+      row.dataset.replacedSrc = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+    fileInput.remove();
+  };
+  document.body.appendChild(fileInput);
+  fileInput.click();
+}
+
+function closeEditElementsPanel() {
+  const panel = document.getElementById('editElementsPanel');
+  if (panel) panel.remove();
+}
+
+function applyElementChanges() {
+  const panel = document.getElementById('editElementsPanel');
+  if (!panel) return;
+
+  const rows = panel.querySelectorAll('.edit-element-row');
+  const changes = [];
+  rows.forEach(row => {
+    const label = row.querySelector('.edit-element-label').textContent;
+    const inputVal = row.querySelector('.edit-element-input').value.trim();
+    const replacedSrc = row.dataset.replacedSrc || null;
+    if (inputVal || replacedSrc) {
+      changes.push({ label, description: inputVal, replacedSrc });
+    }
+  });
+
+  if (changes.length === 0) {
+    closeEditElementsPanel();
+    return;
+  }
+
+  console.log('Element changes:', changes);
+  // TODO: call AI to apply element modifications
+  closeEditElementsPanel();
+}
+
+function initElementsPanelDrag(panel) {
+  const handle = panel.querySelector('#editElementsDragHandle');
+  let isDragging = false;
+  let startX, startY, startLeft, startTop;
+  handle.addEventListener('mousedown', (e) => {
+    if (e.target.closest('.edit-text-panel-close')) return;
+    isDragging = true;
+    startX = e.clientX; startY = e.clientY;
+    startLeft = panel.offsetLeft; startTop = panel.offsetTop;
+    e.preventDefault();
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    panel.style.left = (startLeft + e.clientX - startX) + 'px';
+    panel.style.top = (startTop + e.clientY - startY) + 'px';
+  });
+  window.addEventListener('mouseup', () => { isDragging = false; });
 }
 
 function showMockup(type) {
@@ -789,6 +1361,363 @@ function showMockup(type) {
 
 function downloadCard(type) {
   // Placeholder
+}
+
+// ============ Separate Layers (Dieline) ============
+function separateLayers(el) {
+  const card = el.closest('.design-card');
+  if (!card) return;
+
+  const cardBody = card.querySelector('.card-body');
+  const origX = parseFloat(card.style.left) || 0;
+  const origY = parseFloat(card.style.top) || 0;
+  const origW = cardBody.offsetWidth;
+  const origH = cardBody.offsetHeight;
+  const origLabel = cardBody.querySelector('.card-label');
+  const origLabelClass = origLabel ? origLabel.className : 'card-label';
+
+  // Create loading placeholder card
+  const spot = { x: origX + origW + 30, y: origY + 20 };
+  const loadingCard = createLoadingDielineCard(spot, origW, origH, {
+    type: 'dieline',
+    label: '# 2D Artwork-with Layers',
+    labelClass: origLabelClass
+  });
+  const genLabel = loadingCard.querySelector('.generating-label');
+  if (genLabel) genLabel.textContent = 'Separating layers...';
+
+  panToReveal(spot.x + origW / 2, spot.y + origH / 2);
+
+  // Create progress disk
+  createProgressDisk(loadingCard, 30000); // 30 seconds demo
+}
+
+// ============ Progress Disk ============
+let progressDiskState = null;
+
+function createProgressDisk(targetCard, durationMs) {
+  // Remove existing
+  removeProgressDisk();
+
+  const circumference = 2 * Math.PI * 22; // r=22 for the circle
+  const disk = document.createElement('div');
+  disk.className = 'progress-disk';
+  disk.id = 'progressDisk';
+  disk.innerHTML = `
+    <svg viewBox="0 0 52 52">
+      <circle class="progress-disk-circle" cx="26" cy="26" r="22"/>
+      <circle class="progress-disk-bar" cx="26" cy="26" r="22"
+              stroke-dasharray="${circumference}" stroke-dashoffset="${circumference}"/>
+    </svg>
+    <span class="progress-disk-text">0%</span>
+  `;
+  document.body.appendChild(disk);
+
+  // Task detail panel
+  const panel = document.createElement('div');
+  panel.className = 'task-detail-panel';
+  panel.id = 'taskDetailPanel';
+  panel.innerHTML = `
+    <div class="task-detail-header">
+      <h4>Tasks</h4>
+      <button class="task-detail-close" onclick="toggleTaskDetail()">
+        <i class="fi fi-rr-cross-small"></i>
+      </button>
+    </div>
+    <div class="task-detail-item" id="taskItem">
+      <div class="task-detail-icon running">
+        <i class="fi fi-rr-layers"></i>
+      </div>
+      <div class="task-detail-info">
+        <div class="task-detail-name">Separating layers for 2D Dieline</div>
+        <div class="task-detail-status" id="taskStatus">Processing... 0%</div>
+        <div class="task-detail-progress">
+          <div class="task-detail-progress-bar" id="taskProgressBar" style="width:0%"></div>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(panel);
+
+  disk.onclick = () => toggleTaskDetail();
+
+  // Animate progress over durationMs
+  const startTime = Date.now();
+  const bar = disk.querySelector('.progress-disk-bar');
+  const text = disk.querySelector('.progress-disk-text');
+  const taskStatus = panel.querySelector('#taskStatus');
+  const taskBar = panel.querySelector('#taskProgressBar');
+  const taskIcon = panel.querySelector('.task-detail-icon');
+  const taskItem = panel.querySelector('#taskItem');
+
+  progressDiskState = { targetCard, interval: null };
+
+  progressDiskState.interval = setInterval(() => {
+    const elapsed = Date.now() - startTime;
+    const pct = Math.min(100, Math.round((elapsed / durationMs) * 100));
+    const offset = circumference - (pct / 100) * circumference;
+
+    bar.style.strokeDashoffset = offset;
+    text.textContent = pct + '%';
+    taskStatus.textContent = pct < 100 ? `Processing... ${pct}%` : 'Completed';
+    taskBar.style.width = pct + '%';
+
+    if (pct >= 100) {
+      clearInterval(progressDiskState.interval);
+      text.textContent = '✓';
+      text.style.color = '#4CAF50';
+      text.style.fontSize = '16px';
+      taskIcon.classList.remove('running');
+      taskIcon.classList.add('done');
+      taskIcon.innerHTML = '<i class="fi fi-rr-check" style="color:#4CAF50;"></i>';
+      taskStatus.textContent = 'Completed — click to view';
+
+      // Replace loading card with result
+      finishSeparateLayers(targetCard);
+
+      // Add "View" button to task
+      const viewBtn = document.createElement('button');
+      viewBtn.className = 'task-detail-action';
+      viewBtn.textContent = 'View';
+      viewBtn.onclick = () => {
+        // Pan to the card
+        const x = parseFloat(targetCard.style.left) || 0;
+        const y = parseFloat(targetCard.style.top) || 0;
+        const w = targetCard.querySelector('.card-body')?.offsetWidth || 400;
+        const h = targetCard.querySelector('.card-body')?.offsetHeight || 400;
+        panToReveal(x + w / 2, y + h / 2);
+        selectCard(targetCard);
+        applyZoom();
+        removeProgressDisk();
+      };
+      taskItem.appendChild(viewBtn);
+
+      // Clicking the disk also navigates
+      disk.onclick = () => {
+        viewBtn.click();
+      };
+    }
+  }, 300);
+}
+
+function toggleTaskDetail() {
+  const panel = document.getElementById('taskDetailPanel');
+  if (panel) panel.classList.toggle('visible');
+}
+
+function removeProgressDisk() {
+  if (progressDiskState && progressDiskState.interval) {
+    clearInterval(progressDiskState.interval);
+  }
+  progressDiskState = null;
+  const disk = document.getElementById('progressDisk');
+  const panel = document.getElementById('taskDetailPanel');
+  if (disk) disk.remove();
+  if (panel) panel.remove();
+}
+
+function finishSeparateLayers(loadingCard) {
+  // Replace loading state with a finished artwork card (demo: clone original dieline image)
+  const sourceCard = document.querySelector('#card-dieline');
+  if (!sourceCard) return;
+
+  const sourceBody = sourceCard.querySelector('.card-body');
+  const newBody = loadingCard.querySelector('.card-body');
+  if (!newBody || !sourceBody) return;
+
+  const cloneBody = sourceBody.cloneNode(true);
+  cloneBody.querySelectorAll('.pin-marker, .inline-edit-dialog, .dieline-3d-window, .dieline-3d-connector, .modify-history-bar').forEach(el => el.remove());
+
+  // Update label to indicate layers
+  const label = cloneBody.querySelector('.card-label');
+  if (label) {
+    label.textContent = '# 2D Artwork-with Layers';
+  }
+
+  cloneBody.style.width = newBody.style.width;
+  cloneBody.style.height = '';
+  newBody.replaceWith(cloneBody);
+
+  applyZoom();
+}
+
+// ============ Layout Panel (Mockup) ============
+function openLayoutPanel(el) {
+  closeAllFloatingPanels();
+
+  const card = el.closest('.design-card');
+  if (!card) return;
+  const cardBody = card.querySelector('.card-body');
+  const cardRect = cardBody.getBoundingClientRect();
+
+  // Position panel to the right of the card
+  let panelLeft = cardRect.right + 16;
+  let panelTop = cardRect.top;
+  const panelWidth = 320;
+  if (panelLeft + panelWidth > window.innerWidth - 20) {
+    panelLeft = cardRect.left - panelWidth - 16;
+  }
+  panelLeft = Math.max(12, Math.min(panelLeft, window.innerWidth - panelWidth - 12));
+  panelTop = Math.max(12, Math.min(panelTop, window.innerHeight - 400));
+
+  const panel = document.createElement('div');
+  panel.className = 'layout-panel';
+  panel.id = 'layoutPanel';
+  panel.style.left = panelLeft + 'px';
+  panel.style.top = panelTop + 'px';
+
+  // Demo layout thumbnails
+  const layouts = [
+    'Single front', 'Single angle', 'Two-pack front', 'Two-pack angle',
+    'Mirror pair', 'Three-pack row', 'Group front', 'Group angle',
+    'Row display', 'Flat lay', 'Grid array'
+  ];
+
+  panel.innerHTML = `
+    <div class="layout-panel-header" id="layoutDragHandle">
+      <h3>Layout</h3>
+      <button class="edit-text-panel-close" onclick="closeLayoutPanel()">
+        <i class="fi fi-rr-cross-small" style="font-size:14px;"></i>
+      </button>
+    </div>
+    <div class="layout-panel-body">
+      <div class="layout-grid">
+        ${layouts.map((name, i) => `
+          <div class="layout-grid-item ${i === 0 ? 'active' : ''}" onclick="selectLayout(this, ${i})" title="${name}">
+            <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:11px;color:#888;text-align:center;padding:8px;">${name}</div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+  document.body.appendChild(panel);
+
+  // Make draggable
+  initLayoutPanelDrag(panel);
+}
+
+function closeLayoutPanel() {
+  const panel = document.getElementById('layoutPanel');
+  if (panel) panel.remove();
+}
+
+function selectLayout(item, index) {
+  item.closest('.layout-grid').querySelectorAll('.layout-grid-item').forEach(i => i.classList.remove('active'));
+  item.classList.add('active');
+  console.log('Layout selected:', index);
+  // TODO: apply layout to 3D mockup
+}
+
+// ============ Background Panel (Mockup) ============
+function openBackgroundPanel(el) {
+  closeAllFloatingPanels();
+
+  const card = el.closest('.design-card');
+  if (!card) return;
+  const cardBody = card.querySelector('.card-body');
+  const cardRect = cardBody.getBoundingClientRect();
+
+  let panelLeft = cardRect.right + 16;
+  let panelTop = cardRect.top;
+  const panelWidth = 320;
+  if (panelLeft + panelWidth > window.innerWidth - 20) {
+    panelLeft = cardRect.left - panelWidth - 16;
+  }
+  panelLeft = Math.max(12, Math.min(panelLeft, window.innerWidth - panelWidth - 12));
+  panelTop = Math.max(12, Math.min(panelTop, window.innerHeight - 400));
+
+  const backgrounds = [
+    { name: 'Clean White Studio', color: '#F8F8F8', desc: 'Minimal white background' },
+    { name: 'Gradient Purple', color: 'linear-gradient(135deg, #E8D5F5, #F5E6FF)', desc: 'Soft purple gradient' },
+    { name: 'Warm Beige', color: '#F5E6D3', desc: 'Warm natural tone' },
+    { name: 'Sky Blue', color: 'linear-gradient(180deg, #D4EDFF, #F0F8FF)', desc: 'Light blue sky' },
+    { name: 'Pastel Pink', color: 'linear-gradient(135deg, #FFE4EC, #FFF0F5)', desc: 'Soft pink pastel' },
+    { name: 'Nature Green', color: 'linear-gradient(135deg, #D4EDDA, #E8F5E9)', desc: 'Fresh green nature' },
+    { name: 'Golden Luxury', color: 'linear-gradient(135deg, #FFF8E1, #F5E6C8)', desc: 'Premium gold tone' },
+    { name: 'Dark Elegance', color: 'linear-gradient(135deg, #2D2D2D, #1A1A1A)', desc: 'Dark premium look' },
+    { name: 'Marble Texture', color: 'linear-gradient(135deg, #F5F5F5, #E0E0E0, #F0F0F0)', desc: 'Marble surface' },
+    { name: 'Sunset Warm', color: 'linear-gradient(135deg, #FFE0B2, #FFCCBC)', desc: 'Warm sunset tones' },
+    { name: 'Ocean Breeze', color: 'linear-gradient(135deg, #B2EBF2, #E0F7FA)', desc: 'Cool ocean blue' },
+    { name: 'Wood Surface', color: 'linear-gradient(135deg, #D7CCC8, #BCAAA4)', desc: 'Wood texture feel' },
+  ];
+
+  const panel = document.createElement('div');
+  panel.className = 'layout-panel';
+  panel.id = 'backgroundPanel';
+  panel.style.left = panelLeft + 'px';
+  panel.style.top = panelTop + 'px';
+  panel.innerHTML = `
+    <div class="layout-panel-header" id="bgDragHandle">
+      <h3>E-commerce Background</h3>
+      <button class="edit-text-panel-close" onclick="closeBackgroundPanel()">
+        <i class="fi fi-rr-cross-small" style="font-size:14px;"></i>
+      </button>
+    </div>
+    <div class="layout-panel-body">
+      <div class="layout-grid">
+        ${backgrounds.map((bg, i) => `
+          <div class="layout-grid-item ${i === 0 ? 'active' : ''}" onclick="selectBackground(this, ${i})" title="${bg.name}"
+               style="background:${bg.color};${bg.name === 'Dark Elegance' ? 'color:#fff;' : ''}">
+            <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:10px;color:${bg.name === 'Dark Elegance' ? '#ccc' : '#888'};text-align:center;padding:6px;">${bg.name}</div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+  document.body.appendChild(panel);
+
+  // Make draggable
+  const handle = panel.querySelector('#bgDragHandle');
+  let isDragging = false, startX, startY, startLeft, startTop;
+  handle.addEventListener('mousedown', (e) => {
+    if (e.target.closest('.edit-text-panel-close')) return;
+    isDragging = true;
+    startX = e.clientX; startY = e.clientY;
+    startLeft = panel.offsetLeft; startTop = panel.offsetTop;
+    e.preventDefault();
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    panel.style.left = (startLeft + e.clientX - startX) + 'px';
+    panel.style.top = (startTop + e.clientY - startY) + 'px';
+  });
+  window.addEventListener('mouseup', () => { isDragging = false; });
+}
+
+function closeBackgroundPanel() {
+  const panel = document.getElementById('backgroundPanel');
+  if (panel) panel.remove();
+}
+
+function selectBackground(item, index) {
+  item.closest('.layout-grid').querySelectorAll('.layout-grid-item').forEach(i => i.classList.remove('active'));
+  item.classList.add('active');
+  console.log('Background selected:', index);
+  // TODO: apply background to mockup scene and generate e-commerce image
+}
+
+function initLayoutPanelDrag(panel) {
+  const handle = panel.querySelector('#layoutDragHandle');
+  let isDragging = false;
+  let startX, startY, startLeft, startTop;
+
+  handle.addEventListener('mousedown', (e) => {
+    if (e.target.closest('.edit-text-panel-close')) return;
+    isDragging = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    startLeft = panel.offsetLeft;
+    startTop = panel.offsetTop;
+    e.preventDefault();
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    panel.style.left = (startLeft + e.clientX - startX) + 'px';
+    panel.style.top = (startTop + e.clientY - startY) + 'px';
+  });
+
+  window.addEventListener('mouseup', () => { isDragging = false; });
 }
 
 // ============ Drag to move cards ============
@@ -821,8 +1750,7 @@ window.addEventListener('mousemove', (e) => {
     const contentRect = canvasContent.getBoundingClientRect();
     let x = (e.clientX - contentRect.left - dragOffset.x) / zoomScale;
     let y = (e.clientY - contentRect.top - dragOffset.y) / zoomScale;
-    x = Math.max(0, x);
-    y = Math.max(0, y);
+    // Allow free movement in all directions (no clamping)
 
     const body = dragCard.querySelector('.card-body');
     const w = body.offsetWidth;
@@ -881,6 +1809,11 @@ window.addEventListener('mousemove', (e) => {
     dragCard.style.left = x + 'px';
     dragCard.style.top = y + 'px';
 
+    // Update Frame membership based on mouse position
+    const mouseCanvasX = (e.clientX - contentRect.left) / zoomScale;
+    const mouseCanvasY = (e.clientY - contentRect.top) / zoomScale;
+    updateFrameMembership(dragCard, x, y, mouseCanvasX, mouseCanvasY);
+
     // Draw guides
     guides.forEach(g => {
       const line = document.createElement('div');
@@ -893,23 +1826,162 @@ window.addEventListener('mousemove', (e) => {
   if (resizeState) {
     handleResize(e);
   }
+  if (frameResizeState) {
+    handleFrameResize(e);
+  }
 });
 
 function clearAlignmentGuides() {
   canvasContent.querySelectorAll('.alignment-guide').forEach(g => g.remove());
 }
 
+// ============ Frame Membership during drag ============
+// 以鼠标位置为准：
+//   进入 Frame → 加入成员，超出边框部分 clip-path 隐藏
+//   离开 Frame → 移出成员，完整显示，Frame 边框不变
+//   松手后 → 清除 clip-path，Frame 自动扩展包围所有成员
+function updateFrameMembership(card, cardX, cardY, mouseX, mouseY) {
+  const body = card.querySelector('.card-body');
+  const cardW = body ? body.offsetWidth : 0;
+  const cardH = body ? body.offsetHeight : 0;
+
+  // 记录卡片当前所属的 Frame（最多一个）
+  let currentFrame = null;
+  document.querySelectorAll('.canvas-frame').forEach(f => {
+    const ids = f.dataset.members ? f.dataset.members.split(',').filter(Boolean) : [];
+    if (ids.includes(card.id)) currentFrame = f;
+  });
+
+  // 找到鼠标所在的 Frame（最多一个）
+  let targetFrame = null;
+  document.querySelectorAll('.canvas-frame').forEach(f => {
+    const fx = parseFloat(f.style.left) || 0;
+    const fy = parseFloat(f.style.top) || 0;
+    const fw = parseFloat(f.style.width) || 0;
+    const fh = parseFloat(f.style.height) || 0;
+    if (mouseX >= fx && mouseX <= fx + fw && mouseY >= fy && mouseY <= fy + fh) {
+      targetFrame = f;
+    }
+  });
+
+  // 若从一个 Frame 移到另一个 Frame，先离开旧的
+  if (currentFrame && currentFrame !== targetFrame) {
+    const ids = currentFrame.dataset.members.split(',').filter(Boolean);
+    currentFrame.dataset.members = ids.filter(id => id !== card.id).join(',');
+    currentFrame = null;
+    card.style.clipPath = '';
+  }
+
+  if (targetFrame) {
+    // 鼠标在 Frame 内：加入成员（若尚未加入），超出边框部分裁剪
+    const fx = parseFloat(targetFrame.style.left) || 0;
+    const fy = parseFloat(targetFrame.style.top) || 0;
+    const fw = parseFloat(targetFrame.style.width) || 0;
+    const fh = parseFloat(targetFrame.style.height) || 0;
+
+    const ids = targetFrame.dataset.members ? targetFrame.dataset.members.split(',').filter(Boolean) : [];
+    if (!ids.includes(card.id)) {
+      ids.push(card.id);
+      targetFrame.dataset.members = ids.join(',');
+    }
+
+    const clipTop    = Math.max(0, fy - cardY);
+    const clipBottom = Math.max(0, (cardY + cardH) - (fy + fh));
+    const clipLeft   = Math.max(0, fx - cardX);
+    const clipRight  = Math.max(0, (cardX + cardW) - (fx + fw));
+    card.style.clipPath = `inset(${clipTop}px ${clipRight}px ${clipBottom}px ${clipLeft}px)`;
+  } else {
+    // 鼠标不在任何 Frame 内：完整显示
+    card.style.clipPath = '';
+  }
+}
+
+// 松手后：清除裁剪，Frame 只扩展（不缩小）以包围所有成员
+function expandAllFramesAfterDrop() {
+  const PAD = 16;
+  document.querySelectorAll('.canvas-frame').forEach(frame => {
+    const ids = frame.dataset.members ? frame.dataset.members.split(',').filter(Boolean) : [];
+    if (ids.length === 0) return;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    ids.forEach(id => {
+      const c = document.getElementById(id);
+      if (!c) return;
+      const b = c.querySelector('.card-body');
+      const cx = parseFloat(c.style.left) || 0;
+      const cy = parseFloat(c.style.top) || 0;
+      const cw = b ? b.offsetWidth : 0;
+      const ch = b ? b.offsetHeight : 0;
+      minX = Math.min(minX, cx);
+      minY = Math.min(minY, cy);
+      maxX = Math.max(maxX, cx + cw);
+      maxY = Math.max(maxY, cy + ch);
+    });
+
+    // 当前 Frame 边界
+    const curLeft   = parseFloat(frame.style.left)   || 0;
+    const curTop    = parseFloat(frame.style.top)    || 0;
+    const curRight  = curLeft + (parseFloat(frame.style.width)  || 0);
+    const curBottom = curTop  + (parseFloat(frame.style.height) || 0);
+
+    // 只扩展，不缩小：取当前边界与成员包围盒的并集
+    const newLeft   = Math.min(curLeft,   minX - PAD);
+    const newTop    = Math.min(curTop,    minY - PAD);
+    const newRight  = Math.max(curRight,  maxX + PAD);
+    const newBottom = Math.max(curBottom, maxY + PAD);
+
+    frame.style.left   = newLeft + 'px';
+    frame.style.top    = newTop  + 'px';
+    frame.style.width  = (newRight  - newLeft) + 'px';
+    frame.style.height = (newBottom - newTop)  + 'px';
+  });
+}
+
 window.addEventListener('mouseup', () => {
   if (dragCard) {
     dragCard.style.zIndex = '';
+    dragCard.style.clipPath = ''; // 清除裁剪，完整显示
+    expandAllFramesAfterDrop();   // Frame 扩展包围所有成员
     dragCard = null;
     clearAlignmentGuides();
   }
   resizeState = null;
+  frameResizeState = null;
 });
 
 // ============ Resize cards ============
 let resizeState = null;
+let frameResizeState = null;
+
+canvasContent.addEventListener('mousedown', (e) => {
+  const handle = e.target.closest('.frame-resize-handle');
+  if (!handle) return;
+  const frame = handle.closest('.canvas-frame');
+  const classes = handle.className;
+  const dir = classes.includes('tl') ? 'tl' : classes.includes('tr') ? 'tr' :
+              classes.includes('bl') ? 'bl' : classes.includes('br') ? 'br' :
+              classes.includes('tm') ? 'tm' : classes.includes('bm') ? 'bm' :
+              classes.includes('ml') ? 'ml' : 'mr';
+  const ids = frame.dataset.members ? frame.dataset.members.split(',').filter(Boolean) : [];
+  const memberStarts = ids.map(id => {
+    const card = document.getElementById(id);
+    if (!card) return null;
+    const body = card.querySelector('.card-body');
+    return { card, x: parseFloat(card.style.left) || 0, y: parseFloat(card.style.top) || 0,
+             w: body ? body.offsetWidth : 0, h: body ? body.offsetHeight : 0 };
+  }).filter(Boolean);
+
+  frameResizeState = {
+    frame, dir, memberStarts,
+    startX: e.clientX, startY: e.clientY,
+    startW: parseFloat(frame.style.width),
+    startH: parseFloat(frame.style.height),
+    startLeft: parseFloat(frame.style.left),
+    startTop: parseFloat(frame.style.top)
+  };
+  e.preventDefault();
+  e.stopPropagation();
+});
 
 canvasContent.addEventListener('mousedown', (e) => {
   const handle = e.target.closest('.resize-handle');
@@ -926,6 +1998,7 @@ canvasContent.addEventListener('mousedown', (e) => {
               classes.includes('tm') ? 'tm' : classes.includes('bm') ? 'bm' :
               classes.includes('ml') ? 'ml' : 'mr';
 
+  const isEdge = ['tm', 'bm', 'ml', 'mr'].includes(dir);
   resizeState = {
     card, cardBody, dir,
     startX: e.clientX, startY: e.clientY,
@@ -933,9 +2006,83 @@ canvasContent.addEventListener('mousedown', (e) => {
     startLeft: parseFloat(card.style.left), startTop: parseFloat(card.style.top)
   };
 
+  // Edge handles = crop mode: lock the image at its current display size
+  if (isEdge) {
+    const img = cardBody.querySelector('.card-image');
+    if (img) {
+      if (!img.dataset.cropInit) {
+        img.dataset.cropInit = '1';
+        const lockedW = cardBody.offsetWidth;
+        const lockedH = cardBody.offsetHeight;
+        img.style.position = 'absolute';
+        img.style.left = '0px';
+        img.style.top = '0px';
+        img.style.width = lockedW + 'px';
+        img.style.height = lockedH + 'px';
+        cardBody.style.overflow = 'hidden';
+      }
+      resizeState.startImgLeft = parseFloat(img.style.left) || 0;
+      resizeState.startImgTop = parseFloat(img.style.top) || 0;
+      resizeState.imgLockedW = parseFloat(img.style.width);
+      resizeState.imgLockedH = parseFloat(img.style.height);
+    }
+  }
+
   e.preventDefault();
   e.stopPropagation();
 });
+
+function handleFrameResize(e) {
+  const s = frameResizeState;
+  const dx = (e.clientX - s.startX) / zoomScale;
+  const dy = (e.clientY - s.startY) / zoomScale;
+  const aspect = s.startW / s.startH;
+  const MIN = 60;
+  let newW = s.startW, newH = s.startH, newLeft = s.startLeft, newTop = s.startTop;
+
+  const isEdge = ['tm', 'bm', 'ml', 'mr'].includes(s.dir);
+
+  if (isEdge) {
+    // 边中点：仅调整 Frame 边框大小，不缩放成员卡片
+    if (s.dir === 'mr') { newW = Math.max(MIN, s.startW + dx); }
+    else if (s.dir === 'ml') { newW = Math.max(MIN, s.startW - dx); newLeft = s.startLeft + (s.startW - newW); }
+    else if (s.dir === 'bm') { newH = Math.max(MIN, s.startH + dy); }
+    else if (s.dir === 'tm') { newH = Math.max(MIN, s.startH - dy); newTop = s.startTop + (s.startH - newH); }
+
+    s.frame.style.left   = newLeft + 'px';
+    s.frame.style.top    = newTop  + 'px';
+    s.frame.style.width  = newW    + 'px';
+    s.frame.style.height = newH    + 'px';
+    // 成员卡片位置和大小不变
+  } else {
+    // 四角：等比缩放 Frame 及所有成员卡片
+    if (s.dir === 'br') { newW = Math.max(MIN, s.startW + dx); newH = newW / aspect; }
+    else if (s.dir === 'bl') { newW = Math.max(MIN, s.startW - dx); newH = newW / aspect; newLeft = s.startLeft + (s.startW - newW); }
+    else if (s.dir === 'tr') { newW = Math.max(MIN, s.startW + dx); newH = newW / aspect; newTop = s.startTop + (s.startH - newH); }
+    else if (s.dir === 'tl') { newW = Math.max(MIN, s.startW - dx); newH = newW / aspect; newLeft = s.startLeft + (s.startW - newW); newTop = s.startTop + (s.startH - newH); }
+
+    const scaleX = newW / s.startW;
+    const scaleY = newH / s.startH;
+
+    s.frame.style.left   = newLeft + 'px';
+    s.frame.style.top    = newTop  + 'px';
+    s.frame.style.width  = newW    + 'px';
+    s.frame.style.height = newH    + 'px';
+
+    (s.memberStarts || []).forEach(({ card, x, y, w, h }) => {
+      const relX = x - s.startLeft;
+      const relY = y - s.startTop;
+      card.style.left = (newLeft + relX * scaleX) + 'px';
+      card.style.top  = (newTop  + relY * scaleY) + 'px';
+      const body = card.querySelector('.card-body');
+      if (body) {
+        body.style.width  = (w * scaleX) + 'px';
+        body.style.height = (h * scaleY) + 'px';
+      }
+    });
+  }
+  applyZoom();
+}
 
 function handleResize(e) {
   const s = resizeState;
@@ -964,21 +2111,57 @@ function handleResize(e) {
     newLeft = s.startLeft + (s.startW - newW);
     newTop = s.startTop + (s.startH - newH);
   }
-  // Edge handles: also proportional by default
+  // Edge handles: crop (change visible window, image stays fixed size)
   else if (s.dir === 'mr' || s.dir === 'ml') {
-    if (s.dir === 'mr') newW = Math.max(80, s.startW + dx);
-    else { newW = Math.max(80, s.startW - dx); newLeft = s.startLeft + (s.startW - newW); }
-    newH = newW / aspect;
+    const img = s.cardBody.querySelector('.card-image');
+    if (s.dir === 'mr') {
+      // Extend/shrink right edge — image left stays fixed
+      const maxW = s.imgLockedW != null ? s.imgLockedW - (s.startImgLeft || 0) : s.startW + dx;
+      newW = Math.max(80, Math.min(s.startW + dx, maxW));
+    } else {
+      // Move left edge — image shifts left to reveal more, or right to hide
+      const imgLeft = (s.startImgLeft || 0) - dx;
+      const clampedLeft = Math.min(0, Math.max(s.imgLockedW != null ? -(s.imgLockedW - 80) : imgLeft, imgLeft));
+      const actualShift = (s.startImgLeft || 0) - clampedLeft;
+      newW = Math.max(80, s.startW - actualShift);
+      newLeft = s.startLeft + actualShift;
+      if (img) img.style.left = clampedLeft + 'px';
+    }
+    newH = s.startH;
   } else if (s.dir === 'tm' || s.dir === 'bm') {
-    if (s.dir === 'bm') newH = Math.max(60, s.startH + dy);
-    else { newH = Math.max(60, s.startH - dy); newTop = s.startTop + (s.startH - newH); }
-    newW = newH * aspect;
+    const img = s.cardBody.querySelector('.card-image');
+    if (s.dir === 'bm') {
+      // Extend/shrink bottom edge — image top stays fixed
+      const maxH = s.imgLockedH != null ? s.imgLockedH - (s.startImgTop || 0) : s.startH + dy;
+      newH = Math.max(60, Math.min(s.startH + dy, maxH));
+    } else {
+      // Move top edge — image shifts up/down
+      const imgTop = (s.startImgTop || 0) - dy;
+      const clampedTop = Math.min(0, Math.max(s.imgLockedH != null ? -(s.imgLockedH - 60) : imgTop, imgTop));
+      const actualShift = (s.startImgTop || 0) - clampedTop;
+      newH = Math.max(60, s.startH - actualShift);
+      newTop = s.startTop + actualShift;
+      if (img) img.style.top = clampedTop + 'px';
+    }
+    newW = s.startW;
   }
 
   s.cardBody.style.width = newW + 'px';
   s.cardBody.style.height = newH + 'px';
   s.card.style.left = newLeft + 'px';
   s.card.style.top = newTop + 'px';
+
+  // Corner resize: if image was previously cropped, reset it to fill the new card size
+  const isCorner = ['tl', 'tr', 'bl', 'br'].includes(s.dir);
+  if (isCorner) {
+    const img = s.cardBody.querySelector('.card-image');
+    if (img && img.dataset.cropInit) {
+      img.style.width = newW + 'px';
+      img.style.height = newH + 'px';
+      img.style.left = '0px';
+      img.style.top = '0px';
+    }
+  }
 }
 
 // ============ Delete selected card ============
@@ -1025,6 +2208,9 @@ function getPinCount(card) {
 function addPinToCard(card, cardBody, xPct, yPct) {
   const count = getPinCount(card) + 1;
   cardPinCounters.set(card, count);
+
+  // Cache pin position for Feature 1
+  cachePinPosition(card, xPct, yPct, count);
 
   // Create pin with number
   const pin = document.createElement('div');
@@ -1358,5 +2544,1130 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
+// ============ Feature 1: Enhanced Pin with coordinate caching & image regeneration ============
+const pinCache = new Map(); // cardId -> [{x, y, pinId, description}]
+
+function cachePinPosition(card, xPct, yPct, pinId) {
+  const cardId = card.id || card.dataset.type + '-' + Date.now();
+  if (!card.id) card.id = cardId;
+
+  if (!pinCache.has(cardId)) pinCache.set(cardId, []);
+  pinCache.get(cardId).push({ x: parseFloat(xPct), y: parseFloat(yPct), pinId, description: '' });
+}
+
+// Handle pin dialog send: regenerate image and place beside original
+async function handlePinSend(card) {
+  const dialog = card.querySelector('.inline-edit-dialog');
+  if (!dialog) return;
+  const input = dialog.querySelector('.inline-dialog-input');
+  if (!input || !input.value.trim()) return;
+
+  const description = input.value.trim();
+  const cardId = card.id;
+  const pins = pinCache.get(cardId) || [];
+
+  // Update descriptions
+  pins.forEach(p => { p.description = description; });
+
+  const body = card.querySelector('.card-body');
+  const origX = parseFloat(card.style.left) || 0;
+  const origY = parseFloat(card.style.top) || 0;
+  const origW = body.offsetWidth;
+  const origH = body.offsetHeight;
+  const cardType = card.dataset.type || 'creation';
+
+  // Get label info from source card
+  const origLabel = body.querySelector('.card-label');
+  const origLabelText = origLabel ? origLabel.textContent.replace(/\s*\(Modified\)/, '') : '# 2D Creation';
+  const origLabelClass = origLabel ? origLabel.className : 'card-label creation-label';
+
+  // Clear pins on original card first
+  clearPinsForCard(card);
+
+  // Create loading card
+  const spot = { x: origX + origW + 30, y: origY + 20 };
+  const loadingCard = createLoadingDielineCard(spot, origW, origH, {
+    type: cardType,
+    label: origLabelText,
+    labelClass: origLabelClass
+  });
+  const genLabel = loadingCard.querySelector('.generating-label');
+  if (genLabel) genLabel.textContent = 'AI Modifying...';
+
+  panToReveal(spot.x + origW / 2, spot.y + origH / 2);
+
+  // Try to get image base64
+  // First check stored base64 (for AI-generated cards that can't be drawn via canvas due to CORS)
+  let imageBase64 = card.dataset.storedBase64 || null;
+  if (!imageBase64) {
+    try { imageBase64 = getCardImageAsBase64(card); } catch (e) {}
+  }
+  const imageUrlPin = !imageBase64 ? getCardImageUrl(card) : null;
+
+  // Determine API size
+  const aspect = origW / origH;
+  let apiSize = '1024x1024';
+  if (aspect > 1.3) apiSize = '1536x1024';
+  else if (aspect < 0.77) apiSize = '1024x1536';
+
+  // Call AI API
+  let generatedImageUrl = null;
+  if (imageBase64 || imageUrlPin) {
+    try {
+      const res = await fetch('/api/pin-edit-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64: imageBase64 || undefined, imageUrl: imageBase64 ? undefined : imageUrlPin, description, pins, size: apiSize })
+      });
+      const data = await res.json();
+      if (res.ok && data.imageUrl) {
+        generatedImageUrl = data.imageUrl;
+      } else {
+        console.warn('Pin edit API error, fallback to clone:', data.error);
+      }
+    } catch (err) {
+      console.warn('Pin edit API failed, fallback to clone:', err);
+    }
+  }
+
+  // Build the new card
+  const newBody = loadingCard.querySelector('.card-body');
+  newBody.style.width = origW + 'px';
+  newBody.style.height = origH + 'px';
+
+  if (generatedImageUrl) {
+    // Store base64 on card so subsequent edits don't fail with CORS
+    if (generatedImageUrl.startsWith('data:image')) {
+      loadingCard.dataset.storedBase64 = generatedImageUrl.split(',')[1] || '';
+    }
+    newBody.innerHTML = `
+      <div class="card-toolbar">
+        <div class="card-toolbar-icon"><i class="fi fi-rr-bulb" style="color:#7C3AED;font-size:12px;"></i></div>
+        <span class="card-toolbar-link" onclick="event.stopPropagation(); generateDielineFromCreation(this.closest('.design-card'))">2D Dieline</span>
+        <span class="card-toolbar-sep">|</span>
+        <span class="card-toolbar-link" onclick="event.stopPropagation();">3D Mockup</span>
+        <span class="card-toolbar-sep">|</span>
+        <span class="card-toolbar-link" onclick="event.stopPropagation(); editText(this)">Edit Text</span>
+        <span class="card-toolbar-sep">|</span>
+        <button class="card-download-btn" onclick="event.stopPropagation();"><i class="fi fi-rr-download" style="font-size:12px;color:#333;"></i></button>
+      </div>
+      <div class="${origLabelClass}">${origLabelText}</div>
+      <div class="card-mode-toggle" onclick="event.stopPropagation();">
+        <span class="mode-btn active" onclick="switchCardMode(this, '2d')">2D</span>
+        <span class="mode-sep">|</span>
+        <span class="mode-btn" onclick="switchCardMode(this, '3d')">3D</span>
+      </div>
+      <img src="${generatedImageUrl}" alt="Modified" class="card-image" crossorigin="anonymous" style="width:100%;height:100%;object-fit:contain;">
+      <div class="resize-handle tl"></div><div class="resize-handle tr"></div>
+      <div class="resize-handle bl"></div><div class="resize-handle br"></div>
+      <div class="resize-handle tm"></div><div class="resize-handle bm"></div>
+      <div class="resize-handle ml"></div><div class="resize-handle mr"></div>
+    `;
+  } else {
+    // Fallback: clone original
+    const cloneBody = body.cloneNode(true);
+    cloneBody.querySelectorAll('.pin-marker, .inline-edit-dialog, .dieline-3d-window, .dieline-3d-connector, .modify-history-bar').forEach(el => el.remove());
+    cloneBody.style.width = origW + 'px';
+    cloneBody.style.height = origH + 'px';
+    newBody.replaceWith(cloneBody);
+  }
+
+  // Add Modify History bar below the card
+  const historyBar = document.createElement('div');
+  historyBar.className = 'modify-history-bar';
+  historyBar.innerHTML = `
+    <div class="modify-history-toggle" onclick="event.stopPropagation(); toggleModifyHistory(this)">
+      <svg width="12" height="12" viewBox="0 0 12 12" class="modify-history-arrow">
+        <path d="M4 3l4 3-4 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      <span>Modify history</span>
+    </div>
+    <div class="modify-history-content" style="display:none;">
+      <div class="diff-item">
+        <strong>Pin Edit Request</strong>
+        <div style="font-size:12px;color:var(--text-primary);margin-top:4px;">${description}</div>
+        <div class="diff-style-change" style="margin-top:4px;">
+          ${pins.map(p => `Pin #${p.pinId} at (${p.x}%, ${p.y}%)`).join(' · ')}
+        </div>
+      </div>
+    </div>
+  `;
+  loadingCard.appendChild(historyBar);
+
+  // Re-attach 3D sidebar
+  if (cardType === 'dieline') {
+    attachDieline3DSidebar(loadingCard);
+  }
+
+  applyZoom();
+}
+
+// Delegate click on send button inside inline dialog
+document.addEventListener('click', (e) => {
+  const sendBtn = e.target.closest('.inline-dialog-send');
+  if (!sendBtn) return;
+  e.stopPropagation();
+  e.preventDefault();
+  const card = sendBtn.closest('.design-card');
+  if (card) handlePinSend(card);
+});
+
+// Also handle Enter key in pin dialog input
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.classList.contains('inline-dialog-input')) {
+    const card = e.target.closest('.design-card');
+    if (card) handlePinSend(card);
+  }
+});
+
+// ============ Feature 2: Edit Text Panel - AI text extraction ============
+// Close all floating panels (Edit Text, Edit Elements, Layout, Background)
+function closeAllFloatingPanels() {
+  closeEditTextPanel();
+  closeEditElementsPanel();
+  closeLayoutPanel();
+  closeBackgroundPanel();
+}
+
+function openEditTextPanel(card) {
+  // Close all other panels first — only one at a time
+  closeAllFloatingPanels();
+
+  const cardBody = card.querySelector('.card-body');
+  const img = cardBody.querySelector('.card-image') || cardBody.querySelector('img');
+
+  // Calculate position: to the right of the card
+  const cardRect = cardBody.getBoundingClientRect();
+  let panelLeft = cardRect.right + 16;
+  let panelTop = cardRect.top;
+
+  // If it would go off-screen right, put it to the left of the card
+  const panelWidth = 420;
+  if (panelLeft + panelWidth > window.innerWidth - 20) {
+    panelLeft = cardRect.left - panelWidth - 16;
+  }
+  // Clamp to viewport
+  panelLeft = Math.max(12, Math.min(panelLeft, window.innerWidth - panelWidth - 12));
+  panelTop = Math.max(12, Math.min(panelTop, window.innerHeight - 300));
+
+  // Create panel (no overlay — non-blocking floating window)
+  const panel = document.createElement('div');
+  panel.className = 'edit-text-panel';
+  panel.id = 'editTextPanel';
+  panel.style.left = panelLeft + 'px';
+  panel.style.top = panelTop + 'px';
+  panel.innerHTML = `
+    <div class="edit-text-panel-header" id="editTextDragHandle">
+      <h3 style="font-size:14px;margin:0;">Edit Text</h3>
+      <button class="edit-text-panel-close" onclick="closeEditTextPanel()">
+        <i class="fi fi-rr-cross-small" style="font-size:14px;"></i>
+      </button>
+    </div>
+    <div class="edit-text-panel-body" id="editTextPanelBody">
+      <div class="edit-text-loading">
+        Extracting text from image<span class="loading-dots"><span></span><span></span><span></span></span>
+      </div>
+    </div>
+    <div class="edit-text-panel-footer">
+      <button class="edit-text-cancel-btn" onclick="closeEditTextPanel()">Cancel</button>
+      <button class="edit-text-save-btn" onclick="saveEditText()">Apply Changes</button>
+    </div>
+  `;
+  document.body.appendChild(panel);
+
+  // Make panel draggable by header
+  initEditTextDrag(panel);
+
+  // Ensure card has an id for reference
+  if (!card.id) card.id = 'card-' + Date.now();
+
+  // Store reference to the card
+  panel.dataset.cardId = card.id;
+  panel._card = card;
+
+  // Extract text via AI
+  extractTextFromCard(card, img);
+}
+
+// Drag logic for the Edit Text floating window
+function initEditTextDrag(panel) {
+  const handle = panel.querySelector('#editTextDragHandle');
+  let isDragging = false;
+  let startX, startY, startLeft, startTop;
+
+  handle.addEventListener('mousedown', (e) => {
+    // Ignore if clicking close button
+    if (e.target.closest('.edit-text-panel-close')) return;
+    isDragging = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    startLeft = panel.offsetLeft;
+    startTop = panel.offsetTop;
+    e.preventDefault();
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    panel.style.left = (startLeft + dx) + 'px';
+    panel.style.top = (startTop + dy) + 'px';
+  });
+
+  window.addEventListener('mouseup', () => {
+    isDragging = false;
+  });
+}
+
+// Default demo texts for initial extraction
+const DEFAULT_DEMO_TEXTS = [
+  { label: 'Brand Name', text: 'Mother Dairy', font: 'serif', size: 36, align: 'center' },
+  { label: 'Sub Brand', text: 'Flavoured', font: 'serif', size: 24, align: 'center' },
+  { label: 'Flavor', text: 'Vanilla', font: 'sans-serif', size: 28, align: 'center' },
+  { label: 'Product Type', text: 'Flavored Milk', font: 'sans-serif', size: 14, align: 'center' },
+  { label: 'Tagline', text: 'READY TO DRINK', font: 'sans-serif', size: 12, align: 'left' },
+  { label: 'Step 1', text: 'Twist', font: 'sans-serif', size: 12, align: 'left' },
+  { label: 'Step 2', text: 'Insert Straw / Attach nipple', font: 'sans-serif', size: 12, align: 'left' },
+  { label: 'Step 3', text: 'Enjoy', font: 'sans-serif', size: 12, align: 'left' },
+  { label: 'Storage', text: 'Once opened, please refrigerate and consume on the same day.', font: 'sans-serif', size: 10, align: 'left' },
+  { label: 'Best Before', text: 'Best before: See at top of pack', font: 'sans-serif', size: 10, align: 'left' },
+  { label: 'Social', text: '@motherdairymy', font: 'sans-serif', size: 11, align: 'left' },
+  { label: 'Language Note', text: '* Malaysia National Language', font: 'sans-serif', size: 9, align: 'left' },
+  { label: 'Local Text', text: 'Naith haarnay\nIdc per Verkary Milk', font: 'sans-serif', size: 11, align: 'center' },
+  { label: 'Nutrition Title', text: 'Nutrition Information', font: 'sans-serif', size: 12, align: 'center' },
+  { label: 'Badge', text: 'ENGAN PRENDITE S CABE', font: 'sans-serif', size: 9, align: 'center' },
+];
+
+// Store per-card text state: cardId -> [{label, text, font, size, align}]
+const cardTextState = new Map();
+
+async function extractTextFromCard(card, img) {
+  const cardId = card.id || '';
+
+  // If we already have stored state for this card, use it directly
+  if (cardTextState.has(cardId)) {
+    renderTextRows(cardTextState.get(cardId));
+    return;
+  }
+
+  // Try AI extraction via GPT-4o Vision
+  // First check stored base64 (for AI-generated cards that can't be drawn via canvas due to CORS)
+  let imageBase64 = card.dataset.storedBase64 || null;
+  if (!imageBase64) {
+    try { imageBase64 = getCardImageAsBase64(card); } catch (e) {}
+  }
+  const imageUrl = getCardImageUrl(card); // fallback URL for server-side fetch
+
+  let texts = null;
+  if (imageBase64 || imageUrl) {
+    try {
+      const res = await fetch('/api/extract-text', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64: imageBase64 || undefined, imageUrl: imageBase64 ? undefined : imageUrl })
+      });
+      const data = await res.json();
+      if (res.ok && data.texts && data.texts.length > 0) {
+        texts = data.texts;
+      } else {
+        console.warn('Text extraction API error, using fallback:', data.error);
+      }
+    } catch (err) {
+      console.warn('Text extraction failed, using fallback:', err);
+    }
+  }
+
+  // Fallback to demo texts only if AI extraction failed
+  if (!texts) {
+    texts = DEFAULT_DEMO_TEXTS.map(t => ({ ...t }));
+  }
+
+  // Check if panel still exists
+  if (!document.getElementById('editTextPanelBody')) return;
+
+  // Store and render
+  if (cardId) cardTextState.set(cardId, texts);
+  renderTextRows(texts);
+}
+
+function renderTextRows(texts) {
+  const body = document.getElementById('editTextPanelBody');
+  if (!body) return;
+
+  body.innerHTML = texts.map((item, i) => `
+    <div class="edit-text-row" data-index="${i}"
+         data-orig-text="${(item.text || '').replace(/"/g, '&quot;')}"
+         data-orig-font="${item.font || 'sans-serif'}"
+         data-orig-size="${item.size || 14}"
+         data-orig-align="${item.align || 'left'}">
+      <div class="edit-text-row-label">${item.label || 'Text ' + (i+1)}</div>
+      <textarea class="edit-text-input" rows="${(item.text || '').includes('\n') ? 2 : 1}">${item.text || ''}</textarea>
+      <div class="edit-text-controls">
+        <select class="edit-text-font" title="Font Family">
+          <option value="sans-serif" ${(item.font||'sans-serif') === 'sans-serif' ? 'selected' : ''}>Sans-serif</option>
+          <option value="serif" ${item.font === 'serif' ? 'selected' : ''}>Serif</option>
+          <option value="monospace" ${item.font === 'monospace' ? 'selected' : ''}>Monospace</option>
+          <option value="cursive" ${item.font === 'cursive' ? 'selected' : ''}>Cursive</option>
+        </select>
+        <input type="number" class="edit-text-size" value="${item.size || 14}" min="6" max="120" title="Font Size">
+        <button class="edit-text-align-btn ${(item.align||'left') === 'left' ? 'active' : ''}" data-align="left" title="Left Align" onclick="setTextAlign(this, 'left')">
+          <svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 3h10M2 6h6M2 9h8M2 12h4" stroke="currentColor" stroke-width="1.3"/></svg>
+        </button>
+        <button class="edit-text-align-btn ${item.align === 'center' ? 'active' : ''}" data-align="center" title="Center Align" onclick="setTextAlign(this, 'center')">
+          <svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 3h10M4 6h6M3 9h8M5 12h4" stroke="currentColor" stroke-width="1.3"/></svg>
+        </button>
+        <button class="edit-text-align-btn ${item.align === 'right' ? 'active' : ''}" data-align="right" title="Right Align" onclick="setTextAlign(this, 'right')">
+          <svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 3h10M6 6h6M4 9h8M8 12h4" stroke="currentColor" stroke-width="1.3"/></svg>
+        </button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function setTextAlign(btn, align) {
+  const row = btn.closest('.edit-text-row');
+  row.querySelectorAll('.edit-text-align-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function closeEditTextPanel() {
+  const panel = document.getElementById('editTextPanel');
+  if (panel) panel.remove();
+}
+
+function saveEditText() {
+  const panel = document.getElementById('editTextPanel');
+  if (!panel) return;
+
+  // Detect changes by comparing current values with originals
+  const rows = panel.querySelectorAll('.edit-text-row');
+  const diffs = [];
+
+  rows.forEach(row => {
+    const label = row.querySelector('.edit-text-row-label').textContent;
+    const curText = row.querySelector('.edit-text-input').value;
+    const curFont = row.querySelector('.edit-text-font').value;
+    const curSize = row.querySelector('.edit-text-size').value;
+    const activeAlign = row.querySelector('.edit-text-align-btn.active');
+    const curAlign = activeAlign ? activeAlign.dataset.align : 'left';
+
+    const origText = row.dataset.origText;
+    const origFont = row.dataset.origFont;
+    const origSize = row.dataset.origSize;
+    const origAlign = row.dataset.origAlign;
+
+    const changes = [];
+    if (curText !== origText) changes.push({ field: 'text', from: origText, to: curText });
+    if (curFont !== origFont) changes.push({ field: 'font', from: origFont, to: curFont });
+    if (curSize !== origSize) changes.push({ field: 'size', from: origSize, to: curSize });
+    if (curAlign !== origAlign) changes.push({ field: 'align', from: origAlign, to: curAlign });
+
+    if (changes.length > 0) {
+      diffs.push({ label, changes, curText, curFont, curSize, curAlign });
+    }
+  });
+
+  // Collect ALL current values (not just diffs) for state storage
+  const allTexts = [];
+  rows.forEach(row => {
+    const label = row.querySelector('.edit-text-row-label').textContent;
+    const text = row.querySelector('.edit-text-input').value;
+    const font = row.querySelector('.edit-text-font').value;
+    const size = parseInt(row.querySelector('.edit-text-size').value);
+    const activeAlign = row.querySelector('.edit-text-align-btn.active');
+    const align = activeAlign ? activeAlign.dataset.align : 'left';
+    allTexts.push({ label, text, font, size, align });
+  });
+
+  // Find the source card — use stored reference (dataset.cardId may be empty for cards without id)
+  const sourceCard = panel._card || (panel.dataset.cardId ? document.getElementById(panel.dataset.cardId) : null);
+
+  closeEditTextPanel();
+
+  if (diffs.length === 0) {
+    console.log('No text changes detected.');
+    return;
+  }
+
+  console.log('Text diffs detected:', diffs);
+
+  // Generate a new image card with the modified text
+  if (sourceCard) {
+    generateEditTextImage(sourceCard, diffs, allTexts);
+  }
+}
+
+// Generate a new card with modified text next to the original via OpenAI
+async function generateEditTextImage(sourceCard, diffs, allTexts) {
+  const sourceBody = sourceCard.querySelector('.card-body');
+  const origX = parseFloat(sourceCard.style.left) || 0;
+  const origY = parseFloat(sourceCard.style.top) || 0;
+  const origW = sourceBody.offsetWidth;
+  const origH = sourceBody.offsetHeight;
+
+  // Place loading card to the right of the source card (offset for visual separation)
+  const spot = { x: origX + origW + 30, y: origY + 20 };
+
+  // Get source card label info
+  const origLabel = sourceBody.querySelector('.card-label');
+  const origLabelText = origLabel ? origLabel.textContent.replace(/\s*\(Modified\)/, '') : '# 2D Creation';
+  const origLabelClass = origLabel ? origLabel.className : 'card-label creation-label';
+  const cardType = sourceCard.dataset.type || 'creation';
+
+  // Create a loading card matching the source card type
+  const loadingCard = createLoadingDielineCard(spot, origW, origH, {
+    type: cardType,
+    label: origLabelText,
+    labelClass: origLabelClass
+  });
+
+  const genLabel = loadingCard.querySelector('.generating-label');
+  if (genLabel) genLabel.textContent = 'Regenerating...';
+
+  panToReveal(spot.x + origW / 2, spot.y + origH / 2);
+
+  // Try to get image as base64 for the API call
+  // First check stored base64 (for AI-generated cards that can't be drawn via canvas due to CORS)
+  let imageBase64 = sourceCard.dataset.storedBase64 || null;
+  if (!imageBase64) {
+    try {
+      imageBase64 = getCardImageAsBase64(sourceCard);
+    } catch (e) {
+      console.warn('Cannot get base64 from card image (will use URL fallback):', e);
+    }
+  }
+  // URL fallback: server will fetch the image when base64 is unavailable
+  const imageUrl = !imageBase64 ? getCardImageUrl(sourceCard) : null;
+
+  // Build the diff HTML for the collapsible history bar
+  const diffHtml = buildDiffHtml(diffs);
+
+  // Determine best OpenAI image size based on original aspect ratio
+  const aspect = origW / origH;
+  let apiSize = '1024x1024';
+  if (aspect > 1.3) apiSize = '1536x1024';  // landscape
+  else if (aspect < 0.77) apiSize = '1024x1536'; // portrait
+
+  // Call OpenAI API to regenerate the image
+  let generatedImageUrl = null;
+  if (imageBase64 || imageUrl) {
+    try {
+      const res = await fetch('/api/edit-text-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64: imageBase64 || undefined, imageUrl: imageBase64 ? undefined : imageUrl, diffs, size: apiSize })
+      });
+      const data = await res.json();
+      if (res.ok && data.imageUrl) {
+        generatedImageUrl = data.imageUrl;
+      } else {
+        console.warn('API returned error, falling back to clone:', data.error);
+      }
+    } catch (err) {
+      console.warn('Edit text image API failed, falling back to clone:', err);
+    }
+  }
+
+  // Build the new card
+  const cardBody = loadingCard.querySelector('.card-body');
+
+  // Force new card to match original card's exact dimensions
+  cardBody.style.width = origW + 'px';
+  cardBody.style.height = origH + 'px';
+
+  if (generatedImageUrl) {
+    // API succeeded — show the AI-generated image
+    // Store base64 on card so subsequent edits don't fail with CORS
+    if (generatedImageUrl.startsWith('data:image')) {
+      loadingCard.dataset.storedBase64 = generatedImageUrl.split(',')[1] || '';
+    }
+    cardBody.innerHTML = `
+      <div class="card-toolbar">
+        <div class="card-toolbar-icon">
+          <i class="fi fi-rr-bulb" style="color:#7C3AED;font-size:12px;"></i>
+        </div>
+        <span class="card-toolbar-link" onclick="event.stopPropagation(); generateDielineFromCreation(this.closest('.design-card'))">2D Dieline</span>
+        <span class="card-toolbar-sep">|</span>
+        <span class="card-toolbar-link" onclick="event.stopPropagation();">3D Mockup</span>
+        <span class="card-toolbar-sep">|</span>
+        <span class="card-toolbar-link" onclick="event.stopPropagation(); editText(this)">Edit Text</span>
+        <span class="card-toolbar-sep">|</span>
+        <button class="card-download-btn" onclick="event.stopPropagation();">
+          <i class="fi fi-rr-download" style="font-size:12px;color:#333;"></i>
+        </button>
+      </div>
+      <div class="${origLabelClass}">${origLabelText}</div>
+      <div class="card-mode-toggle" onclick="event.stopPropagation();">
+        <span class="mode-btn active" onclick="switchCardMode(this, '2d')">2D</span>
+        <span class="mode-sep">|</span>
+        <span class="mode-btn" onclick="switchCardMode(this, '3d')">3D</span>
+      </div>
+      <img src="${generatedImageUrl}" alt="Modified" class="card-image" crossorigin="anonymous"
+           style="width:100%;height:100%;object-fit:contain;">
+      <div class="resize-handle tl"></div><div class="resize-handle tr"></div>
+      <div class="resize-handle bl"></div><div class="resize-handle br"></div>
+      <div class="resize-handle tm"></div><div class="resize-handle bm"></div>
+      <div class="resize-handle ml"></div><div class="resize-handle mr"></div>
+    `;
+  } else {
+    // Fallback: clone the original card image (API not configured or failed)
+    const sourceBodyClone = sourceBody.cloneNode(true);
+    sourceBodyClone.querySelectorAll('.pin-marker, .inline-edit-dialog, .dieline-3d-window, .modify-history-bar').forEach(el => el.remove());
+    // Preserve original dimensions on clone
+    sourceBodyClone.style.width = origW + 'px';
+    sourceBodyClone.style.height = origH + 'px';
+    cardBody.replaceWith(sourceBodyClone);
+  }
+
+  // Append collapsible Modify History bar BELOW the card body (not inside/overlapping the image)
+  const historyBar = document.createElement('div');
+  historyBar.className = 'modify-history-bar';
+  historyBar.innerHTML = `
+    <div class="modify-history-toggle" onclick="event.stopPropagation(); toggleModifyHistory(this)">
+      <svg width="12" height="12" viewBox="0 0 12 12" class="modify-history-arrow">
+        <path d="M4 3l4 3-4 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      <span>Modify history</span>
+    </div>
+    <div class="modify-history-content" style="display:none;">
+      ${diffHtml}
+    </div>
+  `;
+  loadingCard.appendChild(historyBar);
+
+  // Re-attach 3D sidebar for dieline cards
+  if (cardType === 'dieline') {
+    attachDieline3DSidebar(loadingCard);
+  }
+
+  // Store the updated text state on the new card so Edit Text shows current values
+  if (allTexts && loadingCard.id) {
+    cardTextState.set(loadingCard.id, allTexts);
+  }
+
+  applyZoom();
+}
+
+// Build diff HTML for modify history
+function buildDiffHtml(diffs) {
+  return diffs.map(d => {
+    const textChange = d.changes.find(c => c.field === 'text');
+    const styleChanges = d.changes.filter(c => c.field !== 'text');
+    let html = `<div class="diff-item"><strong>${d.label}</strong>`;
+    if (textChange) {
+      html += `<div class="diff-text-change"><span class="diff-from">${textChange.from}</span> → <span class="diff-to">${textChange.to}</span></div>`;
+    }
+    if (styleChanges.length > 0) {
+      html += `<div class="diff-style-change">${styleChanges.map(c => `${c.field}: ${c.from} → ${c.to}`).join(', ')}</div>`;
+    }
+    html += '</div>';
+    return html;
+  }).join('');
+}
+
+// Toggle modify history panel expand/collapse
+function toggleModifyHistory(toggleEl) {
+  const bar = toggleEl.closest('.modify-history-bar');
+  const content = bar.querySelector('.modify-history-content');
+  const arrow = bar.querySelector('.modify-history-arrow');
+  const isHidden = content.style.display === 'none';
+  content.style.display = isHidden ? 'block' : 'none';
+  arrow.style.transform = isHidden ? 'rotate(90deg)' : '';
+  bar.classList.toggle('expanded', isHidden);
+}
+
+// Clear pins helper that works with any element inside the card
+function clearPinsForCard(card) {
+  const cardBody = card.querySelector('.card-body');
+  if (cardBody) cardBody.querySelectorAll('.pin-marker').forEach(p => p.remove());
+  cardPinCounters.set(card, 0);
+  const dialog = card.querySelector('.inline-edit-dialog');
+  if (dialog) dialog.remove();
+}
+
+// ============ Feature 3: 3D Model Window on Dieline cards ============
+const DIELINE_3D_MODEL_URL = 'https://www.pacdora.com/share?filter_url=psm6n35gbf';
+
+function attachDieline3DSidebar(card) {
+  const cardBody = card.querySelector('.card-body');
+  if (!cardBody || card.dataset.type !== 'dieline') return;
+
+  // Don't add if already present
+  if (card.querySelector('.dieline-3d-window')) return;
+
+  // Size: height = half of card body height, width = height (square)
+  const cardH = cardBody.offsetHeight || 400;
+  const sideH = Math.round(cardH / 2);
+
+  // Position: to the left of the card, top-aligned
+  const windowEl = document.createElement('div');
+  windowEl.className = 'dieline-3d-window';
+  windowEl.style.width = sideH + 'px';
+  windowEl.style.height = sideH + 'px';
+  windowEl.style.position = 'absolute';
+  const gap = 50; // horizontal gap for connector line
+  windowEl.style.left = -(sideH + gap) + 'px';
+  windowEl.style.top = '0px'; // top-aligned with card
+
+  windowEl.innerHTML = `
+    <iframe src="${DIELINE_3D_MODEL_URL}" allowfullscreen></iframe>
+    <div class="dieline-3d-window-overlay">
+      <button class="dieline-3d-window-btn" onclick="event.stopPropagation(); openModifyDielineDimension(this)">Modify Dieline Dimension</button>
+      <button class="dieline-3d-window-btn" onclick="event.stopPropagation(); openChangeModel(this)">Change Model</button>
+    </div>
+  `;
+
+  card.appendChild(windowEl);
+
+  // Create SVG connector line between the 3D window and the card body
+  const connector = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  connector.classList.add('dieline-3d-connector');
+  connector.style.position = 'absolute';
+  connector.style.overflow = 'visible';
+  connector.style.left = '0';
+  connector.style.top = '0';
+  connector.style.width = '1px';
+  connector.style.height = '1px';
+  connector.innerHTML = `<line class="connector-line"/>`;
+  card.appendChild(connector);
+
+  // Update positions
+  updateDieline3DPositions(card);
+
+  // Check if currently in 3D mode — if so, hide
+  const activeMode = cardBody.querySelector('.mode-btn.active');
+  if (activeMode && activeMode.textContent.trim() === '3D') {
+    windowEl.classList.add('hidden-3d');
+    connector.classList.add('hidden-3d');
+  }
+}
+
+function updateDieline3DPositions(card) {
+  const cardBody = card.querySelector('.card-body');
+  const windowEl = card.querySelector('.dieline-3d-window');
+  const connector = card.querySelector('.dieline-3d-connector');
+  if (!cardBody || !windowEl || !connector) return;
+
+  const cardH = cardBody.offsetHeight || 400;
+  const cardW = cardBody.offsetWidth || 500;
+  const sideH = Math.round(cardH / 2);
+
+  const gap = 50;
+  // Update window size & position (top-aligned)
+  windowEl.style.width = sideH + 'px';
+  windowEl.style.height = sideH + 'px';
+  windowEl.style.left = -(sideH + gap) + 'px';
+  windowEl.style.top = '0px';
+
+  // Connector: horizontal line from right edge of 3D window to left edge of card
+  const lineY = sideH / 2; // vertical center of the 3D window
+  const line = connector.querySelector('.connector-line');
+  if (line) {
+    line.setAttribute('x1', -gap);
+    line.setAttribute('y1', lineY);
+    line.setAttribute('x2', 0);
+    line.setAttribute('y2', lineY);
+  }
+}
+
+// Update sidebar size when card resizes
+function updateDieline3DSidebarSize(cardBody) {
+  const card = cardBody.closest('.design-card');
+  if (card) updateDieline3DPositions(card);
+}
+
+// Modify Dieline Dimension modal
+function openModifyDielineDimension(btn) {
+  closeAllMiniModals();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'model-overlay-bg';
+  overlay.id = 'dielineDimOverlay';
+  overlay.onclick = closeAllMiniModals;
+  document.body.appendChild(overlay);
+
+  const modal = document.createElement('div');
+  modal.className = 'dieline-dimension-modal';
+  modal.id = 'dielineDimModal';
+  modal.innerHTML = `
+    <h3>Modify Dieline Dimension</h3>
+    <div class="dimension-input-group">
+      <label>Width (mm)
+        <input type="number" id="dielineWidth" value="200" min="10" max="2000">
+      </label>
+      <label>Height (mm)
+        <input type="number" id="dielineHeight" value="280" min="10" max="2000">
+      </label>
+    </div>
+    <div class="dimension-input-group">
+      <label>Depth (mm)
+        <input type="number" id="dielineDepth" value="60" min="1" max="1000">
+      </label>
+      <label>Unit
+        <select id="dielineUnit">
+          <option value="mm" selected>Millimeters (mm)</option>
+          <option value="cm">Centimeters (cm)</option>
+          <option value="in">Inches (in)</option>
+        </select>
+      </label>
+    </div>
+    <div class="modal-btn-row">
+      <button class="modal-btn-cancel" onclick="closeAllMiniModals()">Cancel</button>
+      <button class="modal-btn-confirm" onclick="applyDielineDimension()">Apply</button>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+function applyDielineDimension() {
+  const w = document.getElementById('dielineWidth')?.value;
+  const h = document.getElementById('dielineHeight')?.value;
+  const d = document.getElementById('dielineDepth')?.value;
+  console.log('Apply dieline dimensions:', { width: w, height: h, depth: d });
+  closeAllMiniModals();
+}
+
+// Change Model modal
+function openChangeModel(btn) {
+  closeAllMiniModals();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'model-overlay-bg';
+  overlay.id = 'changeModelOverlay';
+  overlay.onclick = closeAllMiniModals;
+  document.body.appendChild(overlay);
+
+  const models = [
+    { name: 'Stand Up Pouch', url: 'https://www.pacdora.com/share?filter_url=psm6n35gbf' },
+    { name: 'Box', url: 'https://www.pacdora.com/share?filter_url=psre5mjuiy' },
+    { name: 'Bottle', url: 'https://www.pacdora.com/share?filter_url=psm6n35gbf' },
+    { name: 'Bag', url: 'https://www.pacdora.com/share?filter_url=psre5mjuiy' },
+    { name: 'Tube', url: 'https://www.pacdora.com/share?filter_url=psm6n35gbf' },
+    { name: 'Can', url: 'https://www.pacdora.com/share?filter_url=psre5mjuiy' },
+  ];
+
+  const modal = document.createElement('div');
+  modal.className = 'change-model-modal';
+  modal.id = 'changeModelModal';
+  modal.innerHTML = `
+    <h3>Change 3D Model</h3>
+    <div class="change-model-grid">
+      ${models.map((m, i) => `
+        <div class="change-model-item ${i === 0 ? 'active' : ''}" data-url="${m.url}" onclick="selectModel(this)">
+          <iframe src="${m.url}" allowfullscreen></iframe>
+        </div>
+      `).join('')}
+    </div>
+    <div class="modal-btn-row">
+      <button class="modal-btn-cancel" onclick="closeAllMiniModals()">Cancel</button>
+      <button class="modal-btn-confirm" onclick="applyChangeModel()">Apply</button>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+function selectModel(item) {
+  item.closest('.change-model-grid').querySelectorAll('.change-model-item').forEach(i => i.classList.remove('active'));
+  item.classList.add('active');
+}
+
+function applyChangeModel() {
+  const active = document.querySelector('.change-model-item.active');
+  if (active) {
+    const url = active.dataset.url;
+    // Update all dieline 3D sidebars with new model
+    document.querySelectorAll('.dieline-3d-window iframe').forEach(iframe => {
+      iframe.src = url;
+    });
+    console.log('Changed model to:', url);
+  }
+  closeAllMiniModals();
+}
+
+function closeAllMiniModals() {
+  ['dielineDimOverlay', 'dielineDimModal', 'changeModelOverlay', 'changeModelModal'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.remove();
+  });
+}
+
+// Attach 3D sidebars to all existing dieline cards
+function initDieline3DSidebars() {
+  document.querySelectorAll('.design-card[data-type="dieline"]').forEach(card => {
+    attachDieline3DSidebar(card);
+  });
+}
+
+// Observe new cards added to canvas
+const canvasObserver = new MutationObserver((mutations) => {
+  for (const mutation of mutations) {
+    for (const node of mutation.addedNodes) {
+      if (node.nodeType === 1 && node.classList.contains('design-card') && node.dataset.type === 'dieline') {
+        // Delay slightly to let card render
+        setTimeout(() => attachDieline3DSidebar(node), 100);
+      }
+    }
+  }
+});
+canvasObserver.observe(canvasContent, { childList: true });
+
+// Also update sidebar size after resize ends
+const _origMouseUp = window.onmouseup;
+window.addEventListener('mouseup', () => {
+  if (resizeState) {
+    const body = resizeState.cardBody;
+    setTimeout(() => updateDieline3DSidebarSize(body), 50);
+  }
+});
+
+// ============ Sync selected card image to chat panel ============
+function syncSelectedCardToChat(card) {
+  const refContainer = document.getElementById('chatRefImage');
+  const refImg = document.getElementById('chatRefImageImg');
+  if (!refContainer || !refImg) return;
+
+  if (!card) {
+    refContainer.style.display = 'none';
+    return;
+  }
+
+  // Skip mockup (3D) cards
+  if (card.dataset.type === 'mockup') {
+    refContainer.style.display = 'none';
+    return;
+  }
+
+  // Skip if card is in 3D mode
+  const activeMode = card.querySelector('.mode-btn.active');
+  if (activeMode && activeMode.textContent.trim() === '3D') {
+    refContainer.style.display = 'none';
+    return;
+  }
+
+  // Get the card image
+  const img = card.querySelector('.card-image') || card.querySelector('img');
+  if (!img || !img.src) {
+    refContainer.style.display = 'none';
+    return;
+  }
+
+  // Show thumbnail
+  refImg.src = img.src;
+  refContainer.style.display = 'flex';
+}
+
+function clearChatRefImage() {
+  const ref = document.getElementById('chatRefImage');
+  if (ref) ref.style.display = 'none';
+}
+
+// ============ Upload Image to Canvas ============
+function uploadImageToCanvas() {
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = 'image/*';
+  fileInput.multiple = true;
+  fileInput.style.display = 'none';
+  fileInput.onchange = (e) => {
+    Array.from(e.target.files).forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        addToCanvas(ev.target.result);
+      };
+      reader.readAsDataURL(file);
+    });
+    fileInput.remove();
+  };
+  document.body.appendChild(fileInput);
+  fileInput.click();
+}
+
+// ============ Paste Image on Canvas ============
+document.addEventListener('paste', (e) => {
+  // Don't intercept paste in input/textarea fields
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.target.closest('.edit-text-panel') || e.target.closest('.inline-edit-dialog')) return;
+
+  const items = e.clipboardData?.items;
+  if (!items) return;
+
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      e.preventDefault();
+      const blob = item.getAsFile();
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        // Place at mouse position if available, otherwise use smart placement
+        addToCanvas(ev.target.result);
+      };
+      reader.readAsDataURL(blob);
+      return; // Only handle first image
+    }
+  }
+});
+
+// ============ Project Save / Load ============
+let currentProjectId = null;
+
+function getProjectIdFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('id') || null;
+}
+
+function collectProjectState() {
+  const cards = canvasContent.querySelectorAll('.design-card');
+  const cardsData = [];
+  cards.forEach(card => {
+    const body = card.querySelector('.card-body');
+    if (!body) return;
+    cardsData.push({
+      id: card.id || '',
+      type: card.dataset.type,
+      left: card.style.left,
+      top: card.style.top,
+      width: body.style.width,
+      height: body.style.height,
+      html: body.innerHTML,
+      bodyClass: body.className,
+      storedBase64: card.dataset.storedBase64 || ''
+    });
+  });
+  return {
+    projectId: currentProjectId,
+    projectName: document.querySelector('.project-name').textContent,
+    panX, panY, zoomScale,
+    cards: cardsData,
+    savedAt: new Date().toISOString()
+  };
+}
+
+async function saveProjectState() {
+  if (!currentProjectId) return;
+  const state = collectProjectState();
+
+  // Save to server (primary — persists across sessions and devices)
+  try {
+    const res = await fetch(`/api/projects/${currentProjectId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: state.projectName, cards_data: state })
+    });
+    if (res.ok) {
+      // Also keep a lightweight localStorage copy as quick-load cache
+      try { localStorage.setItem('project_' + currentProjectId, JSON.stringify(state)); } catch(e) {}
+      return;
+    }
+  } catch (e) {
+    console.warn('Server save failed, falling back to localStorage:', e.message);
+  }
+
+  // Fallback: localStorage only
+  try {
+    localStorage.setItem('project_' + currentProjectId, JSON.stringify(state));
+  } catch (e) {
+    console.warn('localStorage quota exceeded — project may not be saved:', e.message);
+  }
+}
+
+function applyProjectState(state, projectId) {
+  canvasContent.querySelectorAll('.design-card').forEach(c => c.remove());
+  canvasContent.querySelectorAll('.demo-project-hint').forEach(h => h.remove());
+
+  (state.cards || []).forEach(cd => {
+    const card = document.createElement('div');
+    card.className = 'design-card';
+    if (cd.id) card.id = cd.id;
+    card.dataset.type = cd.type || '';
+    card.style.left = cd.left || '0px';
+    card.style.top = cd.top || '0px';
+    if (cd.storedBase64) card.dataset.storedBase64 = cd.storedBase64;
+    const body = document.createElement('div');
+    body.className = cd.bodyClass || 'card-body';
+    body.innerHTML = cd.html || '';
+    if (cd.width) body.style.width = cd.width;
+    if (cd.height) body.style.height = cd.height;
+    card.appendChild(body);
+    canvasContent.appendChild(card);
+  });
+
+  panX = state.panX || 0;
+  panY = state.panY || 0;
+  zoomScale = state.zoomScale || 1;
+  document.querySelector('.project-name').textContent = state.projectName || 'Project';
+  currentProjectId = projectId;
+
+  applyZoom();
+  initDieline3DSidebars();
+}
+
+async function loadProjectState(projectId) {
+  // Try server first
+  try {
+    const res = await fetch(`/api/projects/${projectId}`);
+    if (res.ok) {
+      const project = await res.json();
+      if (project.cards_data) {
+        let state;
+        try {
+          state = typeof project.cards_data === 'string'
+            ? JSON.parse(project.cards_data)
+            : project.cards_data;
+        } catch (e) { /* invalid JSON */ }
+        if (state && Array.isArray(state.cards) && state.cards.length > 0) {
+          applyProjectState(state, projectId);
+          return true;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Server load failed, trying localStorage:', e.message);
+  }
+
+  // Fallback: localStorage
+  try {
+    const raw = localStorage.getItem('project_' + projectId);
+    if (raw) {
+      const state = JSON.parse(raw);
+      if (state && Array.isArray(state.cards) && state.cards.length > 0) {
+        applyProjectState(state, projectId);
+        return true;
+      }
+    }
+  } catch (e) {
+    console.error('localStorage load failed:', e);
+  }
+
+  return false;
+}
+
+// Auto-save every 10 seconds
+setInterval(() => saveProjectState(), 10000);
+
+// Save before unload — sync to localStorage as instant backup, then async to server
+window.addEventListener('beforeunload', () => {
+  if (!currentProjectId) return;
+  const state = collectProjectState();
+  try { localStorage.setItem('project_' + currentProjectId, JSON.stringify(state)); } catch(e) {}
+  // Beacon to server (fire-and-forget, browser may complete even after page closes)
+  try {
+    navigator.sendBeacon(`/api/projects/${currentProjectId}/beacon`,
+      new Blob([JSON.stringify({ name: state.projectName, cards_data: state })],
+        { type: 'application/json' }));
+  } catch(e) {}
+});
+
 // ============ Init ============
-applyZoom();
+(async function initProject() {
+  const urlProjectId = getProjectIdFromUrl();
+  if (urlProjectId) {
+    currentProjectId = urlProjectId;
+    const loaded = await loadProjectState(urlProjectId);
+    if (!loaded) {
+      applyZoom();
+      initDieline3DSidebars();
+    }
+  } else {
+    applyZoom();
+    initDieline3DSidebars();
+  }
+})();

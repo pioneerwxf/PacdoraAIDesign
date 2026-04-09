@@ -146,11 +146,13 @@ app.post('/api/projects', (req, res) => {
   res.status(201).json(project);
 });
 
-// Update project
+// Update project (upsert — create with custom ID if not exists)
 app.put('/api/projects/:id', (req, res) => {
-  const project = stmts.getProject.get(req.params.id);
+  let project = stmts.getProject.get(req.params.id);
   if (!project) {
-    return res.status(404).json({ error: 'Project not found' });
+    // Create with the client-supplied ID (e.g. generated on frontend)
+    stmts.createProject.run(req.params.id, req.userId, req.body.name || 'Untitled', 0, '[]');
+    project = stmts.getProject.get(req.params.id);
   }
 
   const { name, packify_project_id, cards_data } = req.body;
@@ -165,6 +167,24 @@ app.put('/api/projects/:id', (req, res) => {
   res.json(updated);
 });
 
+// Beacon endpoint for beforeunload saves (accepts text/plain body from sendBeacon)
+app.post('/api/projects/:id/beacon', express.text({ type: '*/*', limit: '20mb' }), (req, res) => {
+  try {
+    const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+    let project = stmts.getProject.get(req.params.id);
+    if (!project) {
+      // Determine user from cookie if available
+      const userId = req.cookies?.user_id || 'beacon_user';
+      stmts.createProject.run(req.params.id, userId, body.name || 'Untitled', 0, '[]');
+    }
+    const { name, cards_data } = body;
+    stmts.updateProject.run(name || null, null, cards_data ? JSON.stringify(cards_data) : null, req.params.id);
+    res.status(204).end();
+  } catch (e) {
+    res.status(204).end(); // beacon always returns 204
+  }
+});
+
 // Delete project
 app.delete('/api/projects/:id', (req, res) => {
   const result = stmts.deleteProject.run(req.params.id, req.userId);
@@ -174,6 +194,41 @@ app.delete('/api/projects/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// ============ Helper: resolve image to base64 (supports data URL, http URL, or raw base64) ============
+async function resolveImageBase64(imageBase64, imageUrl) {
+  if (imageBase64) return imageBase64;
+  if (!imageUrl) return null;
+  // GPT-4o can use URLs directly, but gpt-image-1 edit needs binary — fetch server-side
+  const response = await fetch(imageUrl, {
+    headers: { 'User-Agent': 'PacdoraAI/1.0' }
+  });
+  if (!response.ok) throw new Error(`Failed to fetch image (${response.status}): ${imageUrl}`);
+  const buffer = await response.arrayBuffer();
+  return Buffer.from(buffer).toString('base64');
+}
+
+// ============ Helper: ensure imageResult is always returned as base64 data URL ============
+// OpenAI sometimes returns a CDN URL instead of b64_json; proxy it server-side so the
+// client always gets a data URL (enabling storedBase64 caching and avoiding CORS issues).
+async function imageResultToDataUrl(imageResult) {
+  if (imageResult.b64_json) {
+    return `data:image/png;base64,${imageResult.b64_json}`;
+  }
+  if (imageResult.url) {
+    try {
+      const r = await fetch(imageResult.url, { headers: { 'User-Agent': 'PacdoraAI/1.0' } });
+      if (r.ok) {
+        const buf = await r.arrayBuffer();
+        return `data:image/png;base64,${Buffer.from(buf).toString('base64')}`;
+      }
+    } catch (e) {
+      console.warn('Could not proxy image URL to base64, returning URL directly:', e.message);
+    }
+    return imageResult.url; // last resort
+  }
+  return null;
+}
+
 // ============ AI: Generate Dieline from 2D Creation (gpt-image-1) ============
 app.post('/api/generate-dieline', async (req, res) => {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -181,12 +236,14 @@ app.post('/api/generate-dieline', async (req, res) => {
     return res.status(500).json({ error: 'OpenAI API key not configured. Please set OPENAI_API_KEY in .env file.' });
   }
 
-  const { imageBase64 } = req.body;
-  if (!imageBase64) {
-    return res.status(400).json({ error: 'imageBase64 is required' });
+  const { imageBase64: providedBase64, imageUrl } = req.body;
+  if (!providedBase64 && !imageUrl) {
+    return res.status(400).json({ error: 'imageBase64 or imageUrl is required' });
   }
 
   try {
+    const imageBase64 = await resolveImageBase64(providedBase64, imageUrl);
+    if (!imageBase64) return res.status(400).json({ error: 'Could not resolve image data' });
     // Convert base64 to Buffer for multipart upload
     const imageBuffer = Buffer.from(imageBase64, 'base64');
     const blob = new Blob([imageBuffer], { type: 'image/png' });
@@ -196,7 +253,6 @@ app.post('/api/generate-dieline', async (req, res) => {
     formData.append('prompt', '根据所选图片中的主要商品包装图，进行平面展开设计，想象背后的设计，并且保留完整的正面设计，形成一个平面的artwork');
     formData.append('image[]', blob, 'input.png');
     formData.append('size', '1024x1024');
-    formData.append('quality', 'high');
 
     const response = await fetch('https://api.openai.com/v1/images/edits', {
       method: 'POST',
@@ -218,14 +274,10 @@ app.post('/api/generate-dieline', async (req, res) => {
       return res.status(500).json({ error: 'gpt-image-1 did not return an image' });
     }
 
-    // Return URL or base64 depending on response format
-    if (imageResult.url) {
-      res.json({ imageUrl: imageResult.url, type: 'image' });
-    } else if (imageResult.b64_json) {
-      res.json({ imageUrl: `data:image/png;base64,${imageResult.b64_json}`, type: 'image' });
-    } else {
-      res.status(500).json({ error: 'Unexpected response format from OpenAI' });
-    }
+    // Always return a data URL so the client can cache base64 without CORS issues
+    const dataUrl = await imageResultToDataUrl(imageResult);
+    if (!dataUrl) return res.status(500).json({ error: 'Unexpected response format from OpenAI' });
+    res.json({ imageUrl: dataUrl, type: 'image' });
 
   } catch (err) {
     console.error('Generate dieline error:', err);
@@ -240,9 +292,9 @@ app.post('/api/edit-text-image', async (req, res) => {
     return res.status(500).json({ error: 'OpenAI API key not configured. Please set OPENAI_API_KEY in .env file.' });
   }
 
-  const { imageBase64, diffs, size } = req.body;
-  if (!imageBase64) {
-    return res.status(400).json({ error: 'imageBase64 is required' });
+  const { imageBase64: providedBase64, imageUrl, diffs, size } = req.body;
+  if (!providedBase64 && !imageUrl) {
+    return res.status(400).json({ error: 'imageBase64 or imageUrl is required' });
   }
   if (!diffs || diffs.length === 0) {
     return res.status(400).json({ error: 'No text changes provided' });
@@ -289,6 +341,9 @@ ${changeInstructions}
 Everything else in the image must remain PIXEL-PERFECT identical to the original. Only the specified text characters should change.`;
 
   try {
+    const imageBase64 = await resolveImageBase64(providedBase64, imageUrl);
+    if (!imageBase64) return res.status(400).json({ error: 'Could not resolve image data' });
+
     const imageBuffer = Buffer.from(imageBase64, 'base64');
     const blob = new Blob([imageBuffer], { type: 'image/png' });
 
@@ -297,7 +352,6 @@ Everything else in the image must remain PIXEL-PERFECT identical to the original
     formData.append('prompt', prompt);
     formData.append('image[]', blob, 'input.png');
     formData.append('size', imageSize);
-    formData.append('quality', 'high');
 
     console.log(`Calling OpenAI gpt-image-1 edit, size=${imageSize}, prompt length=${prompt.length}`);
 
@@ -322,13 +376,9 @@ Everything else in the image must remain PIXEL-PERFECT identical to the original
       return res.status(500).json({ error: 'gpt-image-1 did not return an image' });
     }
 
-    if (imageResult.url) {
-      res.json({ imageUrl: imageResult.url, type: 'image' });
-    } else if (imageResult.b64_json) {
-      res.json({ imageUrl: `data:image/png;base64,${imageResult.b64_json}`, type: 'image' });
-    } else {
-      res.status(500).json({ error: 'Unexpected response format from OpenAI' });
-    }
+    const dataUrl = await imageResultToDataUrl(imageResult);
+    if (!dataUrl) return res.status(500).json({ error: 'Unexpected response format from OpenAI' });
+    res.json({ imageUrl: dataUrl, type: 'image' });
 
   } catch (err) {
     console.error('Edit text image error:', err);
@@ -343,8 +393,8 @@ app.post('/api/pin-edit-image', async (req, res) => {
     return res.status(500).json({ error: 'OpenAI API key not configured.' });
   }
 
-  const { imageBase64, description, pins, size } = req.body;
-  if (!imageBase64) return res.status(400).json({ error: 'imageBase64 is required' });
+  const { imageBase64: providedBase64Pin, imageUrl: imageUrlPin, description, pins, size } = req.body;
+  if (!providedBase64Pin && !imageUrlPin) return res.status(400).json({ error: 'imageBase64 or imageUrl is required' });
   if (!description) return res.status(400).json({ error: 'description is required' });
 
   const validSizes = ['1024x1024', '1024x1536', '1536x1024', 'auto'];
@@ -371,6 +421,9 @@ CRITICAL RULES:
 Apply the user's requested changes while keeping everything else pixel-perfect identical.`;
 
   try {
+    const imageBase64 = await resolveImageBase64(providedBase64Pin, imageUrlPin);
+    if (!imageBase64) return res.status(400).json({ error: 'Could not resolve image data' });
+
     const imageBuffer = Buffer.from(imageBase64, 'base64');
     const blob = new Blob([imageBuffer], { type: 'image/png' });
 
@@ -379,7 +432,6 @@ Apply the user's requested changes while keeping everything else pixel-perfect i
     formData.append('prompt', prompt);
     formData.append('image[]', blob, 'input.png');
     formData.append('size', imageSize);
-    formData.append('quality', 'high');
 
     console.log(`Calling OpenAI pin-edit, size=${imageSize}, pins=${pins?.length || 0}, desc="${description.substring(0, 50)}..."`);
 
@@ -399,13 +451,9 @@ Apply the user's requested changes while keeping everything else pixel-perfect i
     const imageResult = data.data?.[0];
     if (!imageResult) return res.status(500).json({ error: 'No image returned' });
 
-    if (imageResult.url) {
-      res.json({ imageUrl: imageResult.url, type: 'image' });
-    } else if (imageResult.b64_json) {
-      res.json({ imageUrl: `data:image/png;base64,${imageResult.b64_json}`, type: 'image' });
-    } else {
-      res.status(500).json({ error: 'Unexpected response format' });
-    }
+    const dataUrl = await imageResultToDataUrl(imageResult);
+    if (!dataUrl) return res.status(500).json({ error: 'Unexpected response format' });
+    res.json({ imageUrl: dataUrl, type: 'image' });
   } catch (err) {
     console.error('Pin edit image error:', err);
     res.status(500).json({ error: err.message || 'Internal server error' });
@@ -419,8 +467,13 @@ app.post('/api/extract-text', async (req, res) => {
     return res.status(500).json({ error: 'OpenAI API key not configured.' });
   }
 
-  const { imageBase64 } = req.body;
-  if (!imageBase64) return res.status(400).json({ error: 'imageBase64 is required' });
+  const { imageBase64, imageUrl } = req.body;
+  if (!imageBase64 && !imageUrl) return res.status(400).json({ error: 'imageBase64 or imageUrl is required' });
+
+  // Build image content for GPT-4o: prefer base64 data URL, fallback to direct URL
+  const imageContent = imageBase64
+    ? { type: 'image_url', image_url: { url: `data:image/png;base64,${imageBase64}` } }
+    : { type: 'image_url', image_url: { url: imageUrl } };
 
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -447,7 +500,7 @@ Be thorough - extract EVERY piece of visible text including small print, numbers
             role: 'user',
             content: [
               { type: 'text', text: 'Extract all visible text from this packaging design image.' },
-              { type: 'image_url', image_url: { url: `data:image/png;base64,${imageBase64}` } }
+              imageContent
             ]
           }
         ],
@@ -548,6 +601,64 @@ Include the background as the first element. Be thorough - extract every distinc
     console.error('Extract elements error:', err);
     res.status(500).json({ error: err.message || 'Internal server error' });
   }
+});
+
+// ============ Dashboard Stats API (no auth required) ============
+app.get('/api/stats', (req, res) => {
+  const totalUsers = db.prepare('SELECT count(*) as n FROM users').get().n;
+  const totalProjects = db.prepare('SELECT count(*) as n FROM projects').get().n;
+  const realProjects = db.prepare("SELECT count(*) as n FROM projects WHERE is_demo = 0").get().n;
+  const demoProjects = db.prepare("SELECT count(*) as n FROM projects WHERE is_demo = 1").get().n;
+
+  // Users registered per day (last 30 days)
+  const usersByDay = db.prepare(`
+    SELECT date(created_at) as day, count(*) as count
+    FROM users
+    WHERE created_at >= date('now', '-30 days')
+    GROUP BY day ORDER BY day
+  `).all();
+
+  // Projects created per day (last 30 days)
+  const projectsByDay = db.prepare(`
+    SELECT date(created_at) as day, count(*) as count
+    FROM projects
+    WHERE created_at >= date('now', '-30 days')
+    GROUP BY day ORDER BY day
+  `).all();
+
+  // Projects updated per day (last 30 days)
+  const projectsUpdatedByDay = db.prepare(`
+    SELECT date(updated_at) as day, count(*) as count
+    FROM projects
+    WHERE updated_at >= date('now', '-30 days') AND is_demo = 0
+    GROUP BY day ORDER BY day
+  `).all();
+
+  // Card counts per project
+  const projectsData = db.prepare('SELECT id, name, cards_data, created_at, updated_at, is_demo FROM projects ORDER BY updated_at DESC').all();
+  const projectStats = projectsData.map(p => {
+    let cards = [];
+    try { const parsed = JSON.parse(p.cards_data || '[]'); cards = Array.isArray(parsed) ? parsed : []; } catch(e) {}
+    const cardTypes = {};
+    cards.forEach(c => { cardTypes[c.type || 'unknown'] = (cardTypes[c.type || 'unknown'] || 0) + 1; });
+    return { id: p.id, name: p.name, cardCount: cards.length, cardTypes, created_at: p.created_at, updated_at: p.updated_at, is_demo: p.is_demo };
+  });
+
+  // Total cards
+  const totalCards = projectStats.reduce((sum, p) => sum + p.cardCount, 0);
+  const cardTypeTotal = {};
+  projectStats.forEach(p => {
+    Object.entries(p.cardTypes).forEach(([t, n]) => { cardTypeTotal[t] = (cardTypeTotal[t] || 0) + n; });
+  });
+
+  res.json({
+    summary: { totalUsers, totalProjects, realProjects, demoProjects, totalCards },
+    usersByDay,
+    projectsByDay,
+    projectsUpdatedByDay,
+    projectStats,
+    cardTypeTotal
+  });
 });
 
 // ============ Static Files ============

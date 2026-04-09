@@ -74,11 +74,11 @@
                 <div class="card-toolbar-icon">
                   <i class="fi fi-rr-bulb" style="color:#7C3AED;font-size:12px;"></i>
                 </div>
+                <span class="card-toolbar-link" onclick="event.stopPropagation(); editDieline(this)">Edit Dieline</span>
+                <span class="card-toolbar-sep">|</span>
                 <span class="card-toolbar-link" onclick="event.stopPropagation(); editText(this)">Edit Text</span>
                 <span class="card-toolbar-sep">|</span>
                 <span class="card-toolbar-link" onclick="event.stopPropagation(); editElements(this)">Edit Elements</span>
-                <span class="card-toolbar-sep">|</span>
-                <span class="card-toolbar-link" onclick="event.stopPropagation(); showMockup('dieline')">Mockup</span>
                 <span class="card-toolbar-sep">|</span>
                 <span class="card-toolbar-link card-toolbar-highlight" onclick="event.stopPropagation(); separateLayers(this)">
                   <i class="fi fi-rr-layers" style="font-size:11px;"></i> Separate Layers
@@ -111,11 +111,13 @@
                 </div>
                 <span class="card-toolbar-link" onclick="event.stopPropagation(); generateDielineFromCreation(this.closest('.design-card'))">2D Dieline</span>
                 <span class="card-toolbar-sep">|</span>
-                <span class="card-toolbar-link">3D mockup</span>
+                <span class="card-toolbar-link" onclick="event.stopPropagation();">3D Mockup</span>
                 <span class="card-toolbar-sep">|</span>
-                <span class="card-toolbar-link" onclick="event.stopPropagation(); editText(this)">Edit text</span>
+                <span class="card-toolbar-link" onclick="event.stopPropagation(); editText(this)">Edit Text</span>
                 <span class="card-toolbar-sep">|</span>
-                <button class="card-download-btn">
+                <span class="card-toolbar-link" onclick="event.stopPropagation(); editElements(this)">Edit Elements</span>
+                <span class="card-toolbar-sep">|</span>
+                <button class="card-download-btn" onclick="event.stopPropagation();">
                   <i class="fi fi-rr-download" style="font-size:12px;color:#333;"></i>
                 </button>
               </div>

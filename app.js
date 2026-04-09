@@ -537,9 +537,11 @@ function addToCanvas(imageUrl) {
         </div>
         <span class="card-toolbar-link" onclick="event.stopPropagation(); generateDielineFromCreation(this.closest('.design-card'))">2D Dieline</span>
         <span class="card-toolbar-sep">|</span>
-        <span class="card-toolbar-link" onclick="event.stopPropagation();">3D mockup</span>
+        <span class="card-toolbar-link" onclick="event.stopPropagation();">3D Mockup</span>
         <span class="card-toolbar-sep">|</span>
-        <span class="card-toolbar-link" onclick="event.stopPropagation(); editText(this)">Edit text</span>
+        <span class="card-toolbar-link" onclick="event.stopPropagation(); editText(this)">Edit Text</span>
+        <span class="card-toolbar-sep">|</span>
+        <span class="card-toolbar-link" onclick="event.stopPropagation(); editElements(this)">Edit Elements</span>
         <span class="card-toolbar-sep">|</span>
         <button class="card-download-btn" onclick="event.stopPropagation();">
           <i class="fi fi-rr-download" style="font-size:12px;color:#333;"></i>
@@ -625,11 +627,11 @@ function replaceDielineLoadingWithImage(loadingCard, imageUrl) {
       <div class="card-toolbar-icon">
         <i class="fi fi-rr-bulb" style="color:#7C3AED;font-size:12px;"></i>
       </div>
+      <span class="card-toolbar-link" onclick="event.stopPropagation(); editDieline(this)">Edit Dieline</span>
+      <span class="card-toolbar-sep">|</span>
       <span class="card-toolbar-link" onclick="event.stopPropagation(); editText(this)">Edit Text</span>
       <span class="card-toolbar-sep">|</span>
       <span class="card-toolbar-link" onclick="event.stopPropagation(); editElements(this)">Edit Elements</span>
-      <span class="card-toolbar-sep">|</span>
-      <span class="card-toolbar-link" onclick="event.stopPropagation(); showMockup('dieline')">Mockup</span>
       <span class="card-toolbar-sep">|</span>
       <span class="card-toolbar-link card-toolbar-highlight" onclick="event.stopPropagation(); separateLayers(this)">
         <i class="fi fi-rr-layers" style="font-size:11px;"></i> Separate Layers
@@ -735,11 +737,16 @@ function generate3DMockup(el) {
     card.innerHTML = `
       <div class="card-body mockup-card" ondblclick="openMockupViewer()">
         <div class="card-toolbar">
-          <span class="card-toolbar-link">Edit Mockup</span>
+          <div class="card-toolbar-icon"><i class="fi fi-rr-bulb" style="color:#7C3AED;font-size:12px;"></i></div>
+          <span class="card-toolbar-link" onclick="event.stopPropagation();">Edit Mockup</span>
           <span class="card-toolbar-sep">|</span>
-          <span class="card-toolbar-link">Change model</span>
+          <span class="card-toolbar-link" onclick="event.stopPropagation();">Change model</span>
           <span class="card-toolbar-sep">|</span>
-          <span class="card-toolbar-link">Export Dieline</span>
+          <span class="card-toolbar-link" onclick="event.stopPropagation(); openLayoutPanel(this)"><i class="fi fi-rr-apps" style="font-size:11px;"></i> Layout</span>
+          <span class="card-toolbar-sep">|</span>
+          <span class="card-toolbar-link" onclick="event.stopPropagation(); openBackgroundPanel(this)"><i class="fi fi-rr-picture" style="font-size:11px;"></i> Background</span>
+          <span class="card-toolbar-sep">|</span>
+          <button class="card-download-btn" onclick="event.stopPropagation();"><i class="fi fi-rr-download" style="font-size:12px;color:#333;"></i></button>
         </div>
         <div class="card-label mockup-label"># 3D mockup</div>
         <img src="https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400&h=500&fit=crop" alt="3D Mockup" class="card-image mockup-image">
@@ -1211,10 +1218,27 @@ function switchCardMode(btn, mode) {
       img.replaceWith(iframe);
 
       const label = cardBody.querySelector('.card-label');
-      if (label) { label.textContent = '# 3D mockup'; label.className = 'card-label mockup-label'; }
+      if (label) { label.textContent = '# 3D Mockup'; label.className = 'card-label mockup-label'; }
       cardBody.className = 'card-body mockup-card';
       cardBody.style.width = currentW + 'px';
       cardBody.style.height = currentH + 'px';
+
+      // 切换为 3D 时更新工具栏为 Mockup 样式
+      const toolbar = cardBody.querySelector('.card-toolbar');
+      if (toolbar) {
+        toolbar.innerHTML = `
+          <div class="card-toolbar-icon"><i class="fi fi-rr-bulb" style="color:#7C3AED;font-size:12px;"></i></div>
+          <span class="card-toolbar-link" onclick="event.stopPropagation();">Edit Mockup</span>
+          <span class="card-toolbar-sep">|</span>
+          <span class="card-toolbar-link" onclick="event.stopPropagation();">Change model</span>
+          <span class="card-toolbar-sep">|</span>
+          <span class="card-toolbar-link" onclick="event.stopPropagation(); openLayoutPanel(this)"><i class="fi fi-rr-apps" style="font-size:11px;"></i> Layout</span>
+          <span class="card-toolbar-sep">|</span>
+          <span class="card-toolbar-link" onclick="event.stopPropagation(); openBackgroundPanel(this)"><i class="fi fi-rr-picture" style="font-size:11px;"></i> Background</span>
+          <span class="card-toolbar-sep">|</span>
+          <button class="card-download-btn" onclick="event.stopPropagation();"><i class="fi fi-rr-download" style="font-size:12px;color:#333;"></i></button>
+        `;
+      }
     }
   } else {
     const iframe = cardBody.querySelector('.mockup-iframe');
@@ -1235,10 +1259,14 @@ function switchCardMode(btn, mode) {
         label.className = card.dataset.origLabelClass || 'card-label';
       }
 
+      // 切换回 2D 时恢复对应工具栏
+      const toolbar = cardBody.querySelector('.card-toolbar');
+      if (toolbar) refreshCardToolbar(cardBody);
+
       // Restore original dimensions — image fills width naturally
       const origW = parseInt(card.dataset.origW) || currentW;
       cardBody.style.width = origW + 'px';
-      cardBody.style.height = '';  // let image determine height
+      cardBody.style.height = '';
     }
   }
   applyZoom();
@@ -2808,6 +2836,8 @@ async function handlePinSend(card) {
         <span class="card-toolbar-sep">|</span>
         <span class="card-toolbar-link" onclick="event.stopPropagation(); editText(this)">Edit Text</span>
         <span class="card-toolbar-sep">|</span>
+        <span class="card-toolbar-link" onclick="event.stopPropagation(); editElements(this)">Edit Elements</span>
+        <span class="card-toolbar-sep">|</span>
         <button class="card-download-btn" onclick="event.stopPropagation();"><i class="fi fi-rr-download" style="font-size:12px;color:#333;"></i></button>
       </div>
       <div class="${origLabelClass}">${origLabelText}</div>
@@ -3250,6 +3280,8 @@ async function generateEditTextImage(sourceCard, diffs, allTexts) {
         <span class="card-toolbar-link" onclick="event.stopPropagation();">3D Mockup</span>
         <span class="card-toolbar-sep">|</span>
         <span class="card-toolbar-link" onclick="event.stopPropagation(); editText(this)">Edit Text</span>
+        <span class="card-toolbar-sep">|</span>
+        <span class="card-toolbar-link" onclick="event.stopPropagation(); editElements(this)">Edit Elements</span>
         <span class="card-toolbar-sep">|</span>
         <button class="card-download-btn" onclick="event.stopPropagation();">
           <i class="fi fi-rr-download" style="font-size:12px;color:#333;"></i>
@@ -3728,6 +3760,40 @@ async function saveProjectState() {
   }
 }
 
+function refreshCardToolbar(body) {
+  const existing = body.querySelector('.card-toolbar');
+  if (!existing) return;
+  let html = '';
+  const icon = `<div class="card-toolbar-icon"><i class="fi fi-rr-bulb" style="color:#7C3AED;font-size:12px;"></i></div>`;
+  const sep = `<span class="card-toolbar-sep">|</span>`;
+  const dl = `<button class="card-download-btn" onclick="event.stopPropagation();"><i class="fi fi-rr-download" style="font-size:12px;color:#333;"></i></button>`;
+  if (body.classList.contains('dieline-card')) {
+    html = `${icon}
+      <span class="card-toolbar-link" onclick="event.stopPropagation(); editDieline(this)">Edit Dieline</span>${sep}
+      <span class="card-toolbar-link" onclick="event.stopPropagation(); editText(this)">Edit Text</span>${sep}
+      <span class="card-toolbar-link" onclick="event.stopPropagation(); editElements(this)">Edit Elements</span>${sep}
+      <span class="card-toolbar-link card-toolbar-highlight" onclick="event.stopPropagation(); separateLayers(this)"><i class="fi fi-rr-layers" style="font-size:11px;"></i> Separate Layers</span>${sep}
+      ${dl}`;
+  } else if (body.classList.contains('creation-card')) {
+    html = `${icon}
+      <span class="card-toolbar-link" onclick="event.stopPropagation(); generateDielineFromCreation(this.closest('.design-card'))">2D Dieline</span>${sep}
+      <span class="card-toolbar-link" onclick="event.stopPropagation();">3D Mockup</span>${sep}
+      <span class="card-toolbar-link" onclick="event.stopPropagation(); editText(this)">Edit Text</span>${sep}
+      <span class="card-toolbar-link" onclick="event.stopPropagation(); editElements(this)">Edit Elements</span>${sep}
+      ${dl}`;
+  } else if (body.classList.contains('mockup-card')) {
+    html = `${icon}
+      <span class="card-toolbar-link" onclick="event.stopPropagation();">Edit Mockup</span>${sep}
+      <span class="card-toolbar-link" onclick="event.stopPropagation();">Change model</span>${sep}
+      <span class="card-toolbar-link" onclick="event.stopPropagation(); openLayoutPanel(this)"><i class="fi fi-rr-apps" style="font-size:11px;"></i> Layout</span>${sep}
+      <span class="card-toolbar-link" onclick="event.stopPropagation(); openBackgroundPanel(this)"><i class="fi fi-rr-picture" style="font-size:11px;"></i> Background</span>${sep}
+      ${dl}`;
+  } else {
+    return;
+  }
+  existing.innerHTML = html;
+}
+
 function applyProjectState(state, projectId) {
   canvasContent.querySelectorAll('.design-card').forEach(c => c.remove());
   canvasContent.querySelectorAll('.demo-project-hint').forEach(h => h.remove());
@@ -3745,6 +3811,8 @@ function applyProjectState(state, projectId) {
     body.innerHTML = cd.html || '';
     if (cd.width) body.style.width = cd.width;
     if (cd.height) body.style.height = cd.height;
+    // 恢复时替换工具栏为最新版本，避免使用数据库中的旧版本
+    refreshCardToolbar(body);
     card.appendChild(body);
     canvasContent.appendChild(card);
   });

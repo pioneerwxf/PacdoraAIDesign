@@ -747,11 +747,21 @@ body.cursor-mode .design-card:hover .mockup-card {
   font-size: 10px;
   font-weight: 500;
   line-height: 1;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: inherit;
+}
+
+.bottom-tool-btn .tool-shortcut {
+  font-size: 9px;
+  font-weight: 400;
+  opacity: 0.5;
 }
 
 .bottom-tool-btn:hover {
-  background: var(--primary-light);
-  color: var(--primary);
+  background: var(--bg-hover, rgba(0,0,0,0.06));
+  color: var(--text-primary);
 }
 
 .bottom-toolbar-divider {
@@ -763,8 +773,17 @@ body.cursor-mode .design-card:hover .mockup-card {
 }
 
 .bottom-tool-btn.active {
-  background: var(--primary-light);
-  color: var(--primary);
+  background: #1a1a1a;
+  color: #ffffff;
+}
+
+.dark-mode .bottom-tool-btn.active {
+  background: #ffffff;
+  color: #1a1a1a;
+}
+
+.bottom-tool-btn.active .tool-shortcut {
+  opacity: 0.6;
 }
 
 /* ============ Frame Mode ============ */

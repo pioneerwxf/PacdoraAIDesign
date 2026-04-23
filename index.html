@@ -14,42 +14,48 @@
 <body>
   <!-- Floating Top-Left Controls -->
   <div class="floating-top-left">
+    <!-- Black circle logo with P -->
     <div class="logo">
-      <img src="https://www.pacdora.com/favicon.ico" alt="Pacdora" width="28" height="28" style="border-radius:6px;">
-      <span class="logo-text">Pacdora AI Design</span>
-    </div>
-    <div class="project-selector" id="projectSelector">
-      <span class="project-name">Untitled</span>
-      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-        <path d="M3 5l3 3 3-3" stroke="#666" stroke-width="1.5" stroke-linecap="round"/>
-      </svg>
-      <div class="project-dropdown" id="projectDropdown">
-        <div class="dropdown-item" onclick="newProject()">+ New Project</div>
-        <div class="dropdown-item danger" onclick="deleteProject()">- Delete project</div>
-        <div class="dropdown-divider"></div>
-        <div class="dropdown-item"># Workspace</div>
+      <div class="logo-icon">
+        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+          <circle cx="16" cy="16" r="16" fill="#191919"/>
+          <text x="16" y="21" text-anchor="middle" font-family="Inter,sans-serif" font-weight="700" font-size="14" fill="#fff">P</text>
+        </svg>
       </div>
+      <span class="logo-text">AI packaging design</span>
     </div>
+    <!-- Divider -->
+    <div class="header-divider"></div>
+    <!-- Menu icon button -->
+    <button class="header-icon-btn" title="Menu">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+        <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      </svg>
+    </button>
+    <!-- History icon button -->
+    <button class="header-icon-btn" title="History">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+        <path d="M3.333 10A6.667 6.667 0 1 0 10 3.333" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        <path d="M3.333 4.167V10H9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M10 7v3.5l2.5 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+    </button>
   </div>
 
-  <!-- Floating User Bar - always visible, left of chat panel -->
+  <!-- Credits pill - always visible, left of chat panel -->
   <div class="canvas-user-bar" id="canvasUserBar">
-    <div class="user-bar-credits">
-      <i class="fi fi-sr-bolt" style="font-size:13px;color:#F59E0B;"></i>
-      <span style="font-size:12px;font-weight:600;color:var(--text-primary);">1</span>
+    <div class="credits-pill">
+      <!-- Sparkle icon -->
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="flex-shrink:0;">
+        <path d="M8 1L9.24 5.76L14 7L9.24 8.24L8 13L6.76 8.24L2 7L6.76 5.76L8 1Z" fill="#F59E0B"/>
+      </svg>
+      <span class="credits-text" id="creditsCount">2 credits</span>
     </div>
-    <div class="user-bar-divider"></div>
-    <div class="user-bar-avatar">
-      <div style="width:22px;height:22px;border-radius:50%;background:#4CAF50;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;">X</div>
+    <div class="credits-add-btn" title="Get more credits">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <path d="M7 2v10M2 7h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+      </svg>
     </div>
-    <div class="user-bar-divider"></div>
-    <button class="user-bar-theme-btn" onclick="toggleTheme()" title="切换深色/浅色模式" id="themeToggleBtn">
-      <i class="fi fi-rr-moon" id="themeIcon" style="font-size:14px;"></i>
-    </button>
-    <div class="user-bar-divider user-bar-chat-divider" id="userBarChatDivider" style="display:none;"></div>
-    <button class="user-bar-theme-btn user-bar-chat-btn" id="userBarChatBtn" onclick="toggleChatPanel()" title="打开聊天" style="display:none;">
-      <i class="fi fi-rr-comment-dots" style="font-size:14px;"></i>
-    </button>
   </div>
 
   <!-- Floating Chat Toggle (visible when chat is collapsed) -->

@@ -66,66 +66,107 @@ body {
   z-index: 100;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 4px;
   background: var(--bg-white);
-  padding: 8px 14px;
+  padding: 8px 10px 8px 12px;
   border-radius: var(--radius-lg);
   box-shadow: 0 2px 12px var(--shadow-md);
+  height: 48px;
 }
 
-/* ============ Floating User Bar (always visible, left of chat) ============ */
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.header-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 6px;
+}
+
+.header-icon-btn {
+  width: 36px;
+  height: 36px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+
+.header-icon-btn:hover {
+  background: var(--bg);
+  color: var(--text-primary);
+}
+
+/* ============ Credits Pill (always visible, left of chat) ============ */
 .canvas-user-bar {
   position: fixed;
   top: 12px;
   right: calc(var(--chat-width) + 8px);
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0;
   background: var(--bg-white);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 5px 10px;
+  padding: 0;
   box-shadow: 0 2px 8px var(--shadow);
   z-index: 120;
   user-select: none;
   transition: right 0.25s ease;
+  overflow: hidden;
+  height: 40px;
 }
 
 body.chat-collapsed .canvas-user-bar {
   right: 8px;
 }
 
-.user-bar-credits {
+.credits-pill {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 5px;
+  padding: 0 10px 0 10px;
+  height: 100%;
 }
 
-.user-bar-avatar {
+.credits-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.credits-add-btn {
+  width: 36px;
+  height: 100%;
   display: flex;
   align-items: center;
-}
-
-.user-bar-divider {
-  width: 1px;
-  height: 18px;
-  background: var(--border);
-}
-
-.user-bar-theme-btn {
-  background: none;
-  border: none;
+  justify-content: center;
+  border-left: 1px solid var(--border);
   cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 6px;
   color: var(--text-secondary);
-  display: flex;
-  align-items: center;
-  transition: background 0.15s;
+  transition: background 0.15s, color 0.15s;
 }
-.user-bar-theme-btn:hover {
-  background: var(--primary-light);
-  color: var(--primary);
+
+.credits-add-btn:hover {
+  background: var(--bg);
+  color: var(--text-primary);
 }
 
 /* ============ Floating Chat Toggle Button ============ */
@@ -186,17 +227,12 @@ body.chat-collapsed .canvas-user-bar {
   font-weight: 500;
 }
 
-.logo {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .logo-text {
-  font-size: 15px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 600;
   color: var(--text-primary);
-  letter-spacing: -0.3px;
+  letter-spacing: -0.2px;
+  white-space: nowrap;
 }
 
 .project-selector {

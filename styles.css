@@ -728,62 +728,123 @@ body.cursor-mode .design-card:hover .mockup-card {
 }
 
 .bottom-tool-btn {
+  position: relative;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  padding: 6px 12px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
   background: none;
   border: none;
   cursor: pointer;
-  border-radius: var(--radius);
+  border-radius: 8px;
   transition: background 0.15s, color 0.15s;
   color: var(--text-secondary);
-  font-size: 18px;
-}
-
-.bottom-tool-btn .tool-label {
-  font-size: 10px;
-  font-weight: 500;
-  line-height: 1;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  color: inherit;
-}
-
-.bottom-tool-btn .tool-shortcut {
-  font-size: 9px;
-  font-weight: 400;
-  opacity: 0.5;
+  flex-shrink: 0;
 }
 
 .bottom-tool-btn:hover {
-  background: var(--bg-hover, rgba(0,0,0,0.06));
+  background: rgba(0,0,0,0.06);
   color: var(--text-primary);
 }
 
 .bottom-toolbar-divider {
   width: 1px;
-  height: 28px;
-  background: var(--border);
-  margin: 0 4px;
+  height: 18px;
+  background: #d9d9d9;
+  margin: 0 2px;
   flex-shrink: 0;
 }
 
 .bottom-tool-btn.active {
-  background: #1a1a1a;
+  background: #191919;
   color: #ffffff;
 }
 
 .dark-mode .bottom-tool-btn.active {
   background: #ffffff;
-  color: #1a1a1a;
+  color: #191919;
 }
 
-.bottom-tool-btn.active .tool-shortcut {
-  opacity: 0.6;
+/* Tooltip */
+.bottom-tool-btn::before {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #191919;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  padding: 5px 10px;
+  border-radius: 6px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 1000;
+  letter-spacing: 0.01em;
+}
+
+.bottom-tool-btn::after {
+  content: '';
+  position: absolute;
+  bottom: calc(100% + 5px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: #191919;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 1000;
+}
+
+.bottom-tool-btn:hover::before,
+.bottom-tool-btn:hover::after {
+  opacity: 1;
+}
+
+/* undo/redo tooltip */
+.canvas-ctrl-btn[data-tooltip] {
+  position: relative;
+}
+.canvas-ctrl-btn[data-tooltip]::before {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #191919;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  padding: 5px 10px;
+  border-radius: 6px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 1000;
+}
+.canvas-ctrl-btn[data-tooltip]::after {
+  content: '';
+  position: absolute;
+  bottom: calc(100% + 5px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: #191919;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 1000;
+}
+.canvas-ctrl-btn[data-tooltip]:hover::before,
+.canvas-ctrl-btn[data-tooltip]:hover::after {
+  opacity: 1;
 }
 
 /* ============ Frame Mode ============ */
